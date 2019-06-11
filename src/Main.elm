@@ -11,10 +11,20 @@ module Main exposing
     , writeConnection
     )
 
-import Accessibility.Styled as Html exposing (Html, div, h1, img, inputText, labelHidden, text)
+import Accessibility.Styled as Html
+    exposing
+        ( Html
+        , button
+        , div
+        , h1
+        , img
+        , inputText
+        , labelHidden
+        , text
+        )
 import Browser
 import Html as NormHtml
-import Html.Styled.Events exposing (onInput)
+import Html.Styled.Events exposing (onClick, onInput)
 import Maybe.Extra as Maybe
 
 
@@ -57,6 +67,7 @@ init =
 
 type Msg
     = UserUpdatedStartHero String
+    | UserRequestsConnection String
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -64,6 +75,9 @@ update msg model =
     case msg of
         UserUpdatedStartHero name ->
             ( { model | startHero = name }, Cmd.none )
+
+        UserRequestsConnection name ->
+            ( model, Cmd.none )
 
 
 
@@ -74,6 +88,7 @@ view : Model -> NormHtml.Html Msg
 view model =
     div []
         [ heroInput model.startHero
+        , heroSubmitButton model.startHero
         , viewConnection model.connection
         ]
         |> Html.toUnstyled
@@ -101,6 +116,13 @@ heroInput name =
         []
         (text "Hero Name:")
         (inputText name [ onInput UserUpdatedStartHero ])
+
+
+heroSubmitButton : String -> Html Msg
+heroSubmitButton name =
+    button
+        [ onClick (UserRequestsConnection "Spider-Man") ]
+        [ text "connect the spider-man to squirrel girl" ]
 
 
 
