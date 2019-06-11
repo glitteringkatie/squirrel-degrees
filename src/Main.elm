@@ -48,7 +48,7 @@ type alias Connection =
     }
 
 
-init : ( Model, Cmd Msg )
+init : ( Model, Maybe Effect )
 init =
     let
         startHero =
@@ -57,7 +57,7 @@ init =
     ( { startHero = startHero
       , connection = Just [ { hero = startHero, comic = "BFFs" } ]
       }
-    , Cmd.none
+    , Nothing
     )
 
 
@@ -67,17 +67,36 @@ init =
 
 type Msg
     = UserUpdatedStartHero String
-    | UserRequestsConnection String
+    | UserRequestsConnection
 
 
-update : Msg -> Model -> ( Model, Cmd Msg )
+type Effect
+    = LoadComics
+
+
+update : Msg -> Model -> ( Model, Maybe Effect )
 update msg model =
     case msg of
         UserUpdatedStartHero name ->
-            ( { model | startHero = name }, Cmd.none )
+            ( { model | startHero = name }, Nothing )
 
-        UserRequestsConnection name ->
-            ( model, Cmd.none )
+        UserRequestsConnection ->
+            ( model, Just LoadComics )
+
+
+perform : ( Model, Maybe Effect ) -> ( Model, Cmd Msg )
+perform ( model, effects ) =
+    ( model
+    , Maybe.map (runEffect model) effects
+        |> Maybe.withDefault Cmd.none
+    )
+
+
+runEffect : Model -> Effect -> Cmd Msg
+runEffect model effect =
+    case effect of
+        LoadComics ->
+            Cmd.none
 
 
 
@@ -121,7 +140,7 @@ heroInput name =
 heroSubmitButton : String -> Html Msg
 heroSubmitButton name =
     button
-        [ onClick (UserRequestsConnection "Spider-Man") ]
+        [ onClick UserRequestsConnection ]
         [ text "connect the spider-man to squirrel girl" ]
 
 
@@ -133,7 +152,7 @@ main : Program () Model Msg
 main =
     Browser.element
         { view = view
-        , init = \_ -> init
-        , update = update
+        , init = \flags -> perform init
+        , update = \msg model -> perform (update msg model)
         , subscriptions = always Sub.none
         }
