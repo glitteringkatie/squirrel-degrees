@@ -28,6 +28,8 @@ import Graphql.OptionalArgument exposing (OptionalArgument(..))
 import Graphql.SelectionSet exposing (SelectionSet, with)
 import Html as NormHtml
 import Html.Styled.Events exposing (onClick, onInput)
+import Marvelql.InputObject exposing (buildCharacterWhereInput)
+import Marvelql.Object exposing (Character(..))
 import Marvelql.Object.Character as CharacterApi
 import Marvelql.Query as Query
 import Marvelql.ScalarCodecs
@@ -117,16 +119,17 @@ characterQuery : String -> SelectionSet CharacterDetails RootQuery
 characterQuery name =
     let
         whereClause =
-            { name = Present name }
+            buildCharacterWhereInput
+                (\optionals ->
+                    { optionals | name = Present "Spider-Man" }
+                )
     in
-    Query.getCharacter (\optionals ->
-        { optionals
-        | where_ =
-            { optionals.where_
-            | name = Present name
-            } 
-        }
-    )
+    Query.getCharacter
+        (\optionals ->
+            { optionals
+                | where_ = Present whereClause
+            }
+        )
         |> with CharacterApi.id
 
 
