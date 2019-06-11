@@ -23,13 +23,19 @@ import Accessibility.Styled as Html
         , text
         )
 import Browser
+import Graphql.Operation exposing (RootQuery)
+import Graphql.OptionalArgument exposing (OptionalArgument(..))
+import Graphql.SelectionSet exposing (SelectionSet, with)
 import Html as NormHtml
 import Html.Styled.Events exposing (onClick, onInput)
+import Marvelql.Object.Character as CharacterApi
+import Marvelql.Query as Query
+import Marvelql.ScalarCodecs
 import Maybe.Extra as Maybe
 
 
 
----- MODEL ----
+--- Model
 
 
 type alias Model =
@@ -62,7 +68,7 @@ init =
 
 
 
----- UPDATE ----
+--- Update
 
 
 type Msg
@@ -71,7 +77,7 @@ type Msg
 
 
 type Effect
-    = LoadComics
+    = LoadCharacterInfo
 
 
 update : Msg -> Model -> ( Model, Maybe Effect )
@@ -81,7 +87,7 @@ update msg model =
             ( { model | startHero = name }, Nothing )
 
         UserRequestsConnection ->
-            ( model, Just LoadComics )
+            ( model, Just LoadCharacterInfo )
 
 
 perform : ( Model, Maybe Effect ) -> ( Model, Cmd Msg )
@@ -95,12 +101,37 @@ perform ( model, effects ) =
 runEffect : Model -> Effect -> Cmd Msg
 runEffect model effect =
     case effect of
-        LoadComics ->
+        LoadCharacterInfo ->
             Cmd.none
 
 
 
----- VIEW ----
+--- GraphQL
+
+
+type alias CharacterDetails =
+    { id : Maybe Marvelql.ScalarCodecs.Id }
+
+
+characterQuery : String -> SelectionSet CharacterDetails RootQuery
+characterQuery name =
+    let
+        whereClause =
+            { name = Present name }
+    in
+    Query.getCharacter (\optionals ->
+        { optionals
+        | where_ =
+            { optionals.where_
+            | name = Present name
+            } 
+        }
+    )
+        |> with CharacterApi.id
+
+
+
+--- View
 
 
 view : Model -> NormHtml.Html Msg
@@ -145,7 +176,7 @@ heroSubmitButton name =
 
 
 
----- PROGRAM ----
+--- Program
 
 
 main : Program () Model Msg
