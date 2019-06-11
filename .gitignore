@@ -1,0 +1,40 @@
+### Elm
+### https://github.com/github/gitignore/blob/master/Elm.gitignore
+# elm-package generated files
+elm-stuff
+# elm-repl generated files
+repl-temp-*
+ui/generated
+
+### Package stuff
+### https://github.com/github/gitignore/blob/master/Node.gitignore
+node_modules/
+
+### VS Code
+### https://github.com/github/gitignore/blob/master/Global/VisualStudioCode.gitignore
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+### Vim
+### https://github.com/github/gitignore/blob/master/Global/Vim.gitignore
+# Swap
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+
+# Session
+Session.vim
+Sessionx.vim
+
+# Temporary
+.netrwhist
+*~
+# Auto-generated tag files
+tags
+# Persistent undo
+[._]*.un~

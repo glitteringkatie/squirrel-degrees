@@ -1,0 +1,15 @@
+{
+  "name": "squirrel-degrees",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "api:gen": "elm-graphql https://api.marvelql.com/ --base Marvelql --output src/generated"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@dillonkearns/elm-graphql": "^3.4.0"
+  }
+}
