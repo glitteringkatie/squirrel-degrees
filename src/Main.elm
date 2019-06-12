@@ -23,9 +23,11 @@ import Accessibility.Styled as Html
         , text
         )
 import Browser
+import Graphql.Http
+import Graphql.Http.GraphqlError exposing (GraphqlError)
 import Graphql.Operation exposing (RootQuery)
 import Graphql.OptionalArgument exposing (OptionalArgument(..))
-import Graphql.SelectionSet exposing (SelectionSet, with)
+import Graphql.SelectionSet as SelectionSet exposing (SelectionSet, with)
 import Html as NormHtml
 import Html.Styled.Events exposing (onClick, onInput)
 import Marvelql.InputObject exposing (buildCharacterWhereInput)
@@ -34,6 +36,7 @@ import Marvelql.Object.Character as CharacterApi
 import Marvelql.Query as Query
 import Marvelql.ScalarCodecs
 import Maybe.Extra as Maybe
+import RemoteData exposing (RemoteData)
 
 
 
@@ -76,6 +79,7 @@ init =
 type Msg
     = UserUpdatedStartHero String
     | UserRequestsConnection
+    | GotCharacterResponse (RemoteData (Graphql.Http.Error (Maybe CharacterDetails)) (Maybe CharacterDetails))
 
 
 type Effect
@@ -91,6 +95,13 @@ update msg model =
         UserRequestsConnection ->
             ( model, Just LoadCharacterInfo )
 
+        GotCharacterResponse maybeDetails ->
+            let
+                _ =
+                    Debug.log (Debug.toString maybeDetails) 3
+            in
+            ( model, Nothing )
+
 
 perform : ( Model, Maybe Effect ) -> ( Model, Cmd Msg )
 perform ( model, effects ) =
@@ -104,7 +115,9 @@ runEffect : Model -> Effect -> Cmd Msg
 runEffect model effect =
     case effect of
         LoadCharacterInfo ->
-            Cmd.none
+            characterQuery model.startHero
+                |> Graphql.Http.queryRequest "https://api.marvelql.com/"
+                |> Graphql.Http.send (RemoteData.fromResult >> GotCharacterResponse)
 
 
 
@@ -115,7 +128,7 @@ type alias CharacterDetails =
     { id : Maybe Marvelql.ScalarCodecs.Id }
 
 
-characterQuery : String -> SelectionSet CharacterDetails RootQuery
+characterQuery : String -> SelectionSet (Maybe CharacterDetails) RootQuery
 characterQuery name =
     let
         whereClause =
@@ -130,7 +143,7 @@ characterQuery name =
                 | where_ = Present whereClause
             }
         )
-        |> with CharacterApi.id
+        (SelectionSet.map CharacterDetails CharacterApi.id)
 
 
 
