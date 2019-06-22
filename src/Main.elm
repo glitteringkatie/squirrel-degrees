@@ -23,6 +23,7 @@ import Accessibility.Styled as Html
         , text
         )
 import Browser
+import Dict exposing (Dict)
 import Graphql.Http
 import Graphql.Http.GraphqlError exposing (GraphqlError)
 import Graphql.Operation exposing (RootQuery)
@@ -45,6 +46,13 @@ import RemoteData exposing (RemoteData)
 
 type alias Model =
     { connection : Maybe (List Connection)
+    , workingConnections1 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
+    , workingConnections2 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
+    , workingConnections3 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
+    , workingConnections4 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
+    , workingConnections5 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
+    , workingConnections6 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
+    , workingComics : List CharactersComicsDetails
     , startHero : String
     }
 
@@ -56,6 +64,7 @@ type alias Model =
 type alias Connection =
     { hero : String
     , comic : String
+    , parentId : Maybe Marvelql.ScalarCodecs.Id
     }
 
 
@@ -66,7 +75,14 @@ init =
             "Spider-Man"
     in
     ( { startHero = startHero
-      , connection = Just [ { hero = startHero, comic = "BFFs" } ]
+      , connection = Just [ { hero = startHero, comic = "BFFs", parentId = Nothing } ]
+      , workingConnections1 = Nothing
+      , workingConnections2 = Nothing
+      , workingConnections3 = Nothing
+      , workingConnections4 = Nothing
+      , workingConnections5 = Nothing
+      , workingConnections6 = Nothing
+      , workingComics = []
       }
     , Nothing
     )
@@ -79,11 +95,19 @@ init =
 type Msg
     = UserUpdatedStartHero String
     | UserRequestsConnection
-    | GotCharacterResponse (RemoteData (Graphql.Http.Error (Maybe CharacterDetails)) (Maybe CharacterDetails))
+    | GotCharactersComicsDetails (RemoteData (Graphql.Http.Error (Maybe (List CharactersComicsDetails))) (Maybe (List CharactersComicsDetails)))
+
+
+
+-- | GotComicResponse (RemoteData (Graphql.Http.Error (Maybe (List ComicDetails))) (Maybe (List ComicDetails)))
 
 
 type Effect
     = LoadCharacterInfo
+
+
+
+-- | LoadComicInfo CharactersComicsDetails
 
 
 update : Msg -> Model -> ( Model, Maybe Effect )
@@ -95,12 +119,16 @@ update msg model =
         UserRequestsConnection ->
             ( model, Just LoadCharacterInfo )
 
-        GotCharacterResponse maybeDetails ->
+        GotCharactersComicsDetails maybeDetails ->
             let
-                _ =
+                newConnections =
                     Debug.log (Debug.toString maybeDetails) 3
             in
-            ( model, Nothing )
+            ( { model | workingComics = [] }, Nothing )
+
+
+
+-- GotComicResponse
 
 
 perform : ( Model, Maybe Effect ) -> ( Model, Cmd Msg )
@@ -117,18 +145,28 @@ runEffect model effect =
         LoadCharacterInfo ->
             characterQuery model.startHero
                 |> Graphql.Http.queryRequest "https://api.marvelql.com/"
-                |> Graphql.Http.send (RemoteData.fromResult >> GotCharacterResponse)
+                |> Graphql.Http.send (RemoteData.fromResult >> GotCharactersComicsDetails)
 
 
 
 --- GraphQL
 
 
-type alias CharacterDetails =
+type alias CharactersComicsDetails =
     { id : Maybe Marvelql.ScalarCodecs.Id }
 
 
-characterQuery : String -> SelectionSet (Maybe CharacterDetails) RootQuery
+
+-- type alias ComicDetails =
+--     { id : Mabye Marvelql.ScalarCodecs.Id }
+-- "query {
+--   getCharacter3770981225: getCharacter(where: {name: "Spider-Man"}) {
+--     id1079877010: id
+--   }
+-- }"
+
+
+characterQuery : String -> SelectionSet (Maybe (List CharactersComicsDetails)) RootQuery
 characterQuery name =
     let
         whereClause =
@@ -137,13 +175,13 @@ characterQuery name =
                     { optionals | name = Present "Spider-Man" }
                 )
     in
-    Query.getCharacter
+    Query.characters
         (\optionals ->
             { optionals
                 | where_ = Present whereClause
             }
         )
-        (SelectionSet.map CharacterDetails CharacterApi.id)
+        (SelectionSet.map CharactersComicsDetails CharacterApi.id)
 
 
 
