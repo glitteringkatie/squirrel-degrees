@@ -34,7 +34,9 @@ import Html.Styled.Events exposing (onClick, onInput)
 import Marvelql.InputObject exposing (buildCharacterWhereInput)
 import Marvelql.Object exposing (Character(..))
 import Marvelql.Object.Character as CharacterApi
+import Marvelql.Object.Summary as Summary
 import Marvelql.Query as Query
+import Marvelql.Scalar as Scalar
 import Marvelql.ScalarCodecs
 import Maybe.Extra as Maybe
 import RemoteData exposing (RemoteData)
@@ -52,7 +54,7 @@ type alias Model =
     , workingConnections4 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
     , workingConnections5 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
     , workingConnections6 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
-    , workingComics : List CharactersComicsDetails
+    , workingComics : Maybe CharactersComicsDetails
     , startHero : String
     }
 
@@ -82,7 +84,7 @@ init =
       , workingConnections4 = Nothing
       , workingConnections5 = Nothing
       , workingConnections6 = Nothing
-      , workingComics = []
+      , workingComics = Nothing
       }
     , Nothing
     )
@@ -121,10 +123,46 @@ update msg model =
 
         GotCharactersComicsDetails maybeDetails ->
             let
-                newConnections =
-                    Debug.log (Debug.toString maybeDetails) 3
+                -- TODO clean up so Nothing is decided in one place
+                -- TODO Make a type that lacks maybes
+                comicNames =
+                    case maybeDetails of
+                        RemoteData.Success details ->
+                            details
+                                |> Maybe.unwrap [] (List.map .comics)
+                                |> List.concatMap (Maybe.withDefault [])
+                                |> Just
+
+                        -- |> List.map (Maybe.withDefault "")
+                        -- |> List.filter (\s -> not (String.isEmpty s))
+                        _ ->
+                            Nothing
+
+                workingComics =
+                    case maybeDetails of
+                        RemoteData.Success details ->
+                            let
+                                id =
+                                    details
+                                        |> Maybe.unwrap [] (List.map .id)
+                                        |> List.map (Maybe.withDefault (Scalar.Id ""))
+                                        |> List.head
+
+                                _ =
+                                    Debug.log (Debug.toString id) 3
+                            in
+                            Just
+                                { comics = comicNames
+                                , id = id
+                                }
+
+                        _ ->
+                            Nothing
+
+                _ =
+                    Debug.log (Debug.toString workingComics) 3
             in
-            ( { model | workingComics = [] }, Nothing )
+            ( { model | workingComics = workingComics }, Nothing )
 
 
 
@@ -153,7 +191,19 @@ runEffect model effect =
 
 
 type alias CharactersComicsDetails =
-    { id : Maybe Marvelql.ScalarCodecs.Id }
+    { id : Maybe Scalar.Id
+
+    -- , name : Maybe String
+    , comics : Maybe (List (Maybe String))
+    }
+
+
+unwrapComicNames : Maybe (List (Maybe String)) -> List String
+unwrapComicNames comics =
+    Maybe.unwrap
+        []
+        (List.map (\comic -> Maybe.withDefault "" comic))
+        comics
 
 
 
@@ -181,7 +231,10 @@ characterQuery name =
                 | where_ = Present whereClause
             }
         )
-        (SelectionSet.map CharactersComicsDetails CharacterApi.id)
+        (SelectionSet.map2 CharactersComicsDetails
+            CharacterApi.id
+            (CharacterApi.comics Summary.name)
+        )
 
 
 
