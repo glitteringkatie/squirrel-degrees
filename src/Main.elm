@@ -54,7 +54,7 @@ type alias Model =
     , workingConnections4 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
     , workingConnections5 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
     , workingConnections6 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
-    , workingComics : Maybe CharactersComicsDetails
+    , workingComics : Maybe WorkingComics
     , startHero : String
     }
 
@@ -112,6 +112,12 @@ type Effect
 -- | LoadComicInfo CharactersComicsDetails
 
 
+type alias WorkingComics =
+    { characterId : Scalar.Id
+    , comicNames : List String
+    }
+
+
 update : Msg -> Model -> ( Model, Maybe Effect )
 update msg model =
     case msg of
@@ -131,10 +137,10 @@ update msg model =
                             details
                                 |> Maybe.unwrap [] (List.map .comics)
                                 |> List.concatMap (Maybe.withDefault [])
+                                |> List.map (Maybe.withDefault "")
+                                |> List.filter (\s -> not (String.isEmpty s))
                                 |> Just
 
-                        -- |> List.map (Maybe.withDefault "")
-                        -- |> List.filter (\s -> not (String.isEmpty s))
                         _ ->
                             Nothing
 
@@ -152,8 +158,8 @@ update msg model =
                                     Debug.log (Debug.toString id) 3
                             in
                             Just
-                                { comics = comicNames
-                                , id = id
+                                { comicNames = Maybe.withDefault [] comicNames
+                                , characterId = Maybe.withDefault (Scalar.Id "") id
                                 }
 
                         _ ->
