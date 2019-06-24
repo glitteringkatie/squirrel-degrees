@@ -151,55 +151,10 @@ update msg model =
 
         GotCharactersComicsDetails maybeDetails ->
             let
-                -- TODO clean up so Nothing is decided in one place
-                comics : Maybe (List ComicDetail)
-                comics =
-                    case maybeDetails of
-                        RemoteData.Success details ->
-                            let
-                                _ =
-                                    Debug.log (Debug.toString details) 3
-                            in
-                            details
-                                |> Maybe.unwrap [] (List.map .comics)
-                                |> List.map (Maybe.withDefault [])
-                                |> List.concat
-                                |> List.map
-                                    (\comic ->
-                                        case comic.name of
-                                            Just name ->
-                                                case comic.resourceUri of
-                                                    Just resourceUri ->
-                                                        -- hacky
-                                                        Just [ { name = name, resource = resourceUri } ]
-
-                                                    Nothing ->
-                                                        Nothing
-
-                                            Nothing ->
-                                                Nothing
-                                    )
-                                |> List.map (Maybe.withDefault [])
-                                |> List.concat
-                                |> Just
-
-                        _ ->
-                            Nothing
-
                 workingComics =
                     case maybeDetails of
                         RemoteData.Success details ->
-                            let
-                                id =
-                                    details
-                                        |> Maybe.unwrap [] (List.map .id)
-                                        |> List.map (Maybe.withDefault (Scalar.Id ""))
-                                        |> List.head
-                            in
-                            Just
-                                { comics = Maybe.withDefault [] comics
-                                , characterId = Maybe.withDefault (Scalar.Id "") id
-                                }
+                            allOrNothing details
 
                         _ ->
                             Nothing
@@ -208,8 +163,6 @@ update msg model =
                 --     case workingComics of
                 --         Just working ->
                 --         Nothing -> Nothing
-                _ =
-                    Debug.log (Debug.toString workingComics) 3
             in
             ( { model | workingComics = workingComics }, Nothing )
 
@@ -222,6 +175,48 @@ update msg model =
 
         UserRequestsFurtherConnections ->
             ( model, Just LoadComicCharacters )
+
+
+allOrNothing : Maybe (List CharactersComicsDetails) -> Maybe WorkingComics
+allOrNothing details =
+    case ( pluckId details, pluckComics details ) of
+        ( Just id, Just comics ) ->
+            Just
+                { comics = comics
+                , characterId = id
+                }
+
+        ( _, _ ) ->
+            Nothing
+
+
+pluckId : Maybe (List CharactersComicsDetails) -> Maybe Scalar.Id
+pluckId details =
+    details
+        |> Maybe.unwrap [] (List.map .id)
+        |> List.map (Maybe.withDefault (Scalar.Id ""))
+        -- I'm assuming that only one character was returned
+        |> List.head
+
+
+pluckComics : Maybe (List CharactersComicsDetails) -> Maybe (List ComicDetail)
+pluckComics details =
+    details
+        |> Maybe.unwrap [] (List.map .comics)
+        |> List.map (Maybe.withDefault [])
+        |> List.concat
+        |> List.map
+            (\comic ->
+                case ( comic.name, comic.resourceUri ) of
+                    ( Just name, Just resourceUri ) ->
+                        Just [ { name = name, resource = resourceUri } ]
+
+                    ( _, _ ) ->
+                        Nothing
+            )
+        |> List.map (Maybe.withDefault [])
+        |> List.concat
+        |> Just
 
 
 
