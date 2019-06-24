@@ -31,9 +31,10 @@ import Graphql.OptionalArgument exposing (OptionalArgument(..))
 import Graphql.SelectionSet as SelectionSet exposing (SelectionSet, with)
 import Html as NormHtml
 import Html.Styled.Events exposing (onClick, onInput)
-import Marvelql.InputObject exposing (buildCharacterWhereInput)
-import Marvelql.Object exposing (Character(..))
+import Marvelql.InputObject exposing (buildCharacterWhereInput, buildComicWhereInput)
+import Marvelql.Object exposing (Character(..), Comic(..))
 import Marvelql.Object.Character as CharacterApi
+import Marvelql.Object.Comic as ComicApi
 import Marvelql.Object.Summary as Summary
 import Marvelql.Query as Query
 import Marvelql.Scalar as Scalar
@@ -63,9 +64,15 @@ type alias Model =
 -- will also have a working graph but idk what that'll look like yet
 
 
+type alias ComicDetail =
+    { name : String
+    , resource : String
+    }
+
+
 type alias Connection =
     { hero : String
-    , comic : String
+    , comic : ComicDetail
     , parentId : Maybe Marvelql.ScalarCodecs.Id
     }
 
@@ -77,14 +84,23 @@ init =
             "Spider-Man"
     in
     ( { startHero = startHero
-      , connection = Just [ { hero = startHero, comic = "BFFs", parentId = Nothing } ]
+      , connection =
+            Just
+                [ { hero = startHero
+                  , comic =
+                        { name = "BFFs"
+                        , resource = "https://www.bffs.com"
+                        }
+                  , parentId = Nothing
+                  }
+                ]
       , workingConnections1 = Nothing
       , workingConnections2 = Nothing
       , workingConnections3 = Nothing
       , workingConnections4 = Nothing
       , workingConnections5 = Nothing
       , workingConnections6 = Nothing
-      , workingComics = Nothing
+      , workingComics = Nothing -- comics I am currently working off of
       }
     , Nothing
     )
@@ -114,7 +130,7 @@ type Effect
 
 type alias WorkingComics =
     { characterId : Scalar.Id
-    , comicNames : List String
+    , comics : List ComicDetail
     }
 
 
@@ -130,17 +146,44 @@ update msg model =
         GotCharactersComicsDetails maybeDetails ->
             let
                 -- TODO clean up so Nothing is decided in one place
-                -- TODO Make a type that lacks maybes
-                comicNames =
+                comics : Maybe (List ComicDetail)
+                comics =
                     case maybeDetails of
                         RemoteData.Success details ->
+                            let
+                                _ =
+                                    Debug.log (Debug.toString details) 3
+                            in
                             details
                                 |> Maybe.unwrap [] (List.map .comics)
-                                |> List.concatMap (Maybe.withDefault [])
-                                |> List.map (Maybe.withDefault "")
-                                |> List.filter (\s -> not (String.isEmpty s))
+                                |> List.map (Maybe.withDefault [])
+                                |> List.concat
+                                |> List.map
+                                    (\comic ->
+                                        case comic.name of
+                                            Just name ->
+                                                case comic.resourceUri of
+                                                    Just resourceUri ->
+                                                        -- hacky
+                                                        Just [ { name = name, resource = resourceUri ++ "/characters" } ]
+
+                                                    Nothing ->
+                                                        Nothing
+
+                                            Nothing ->
+                                                Nothing
+                                    )
+                                |> List.map (Maybe.withDefault [])
+                                |> List.concat
                                 |> Just
 
+                        -- |> Maybe.unwrap [] (List.map .comics)
+                        -- |> List.concatMap (Maybe.withDefault [])
+                        -- |> Just
+                        -- |> List.pluck .name
+                        -- |> List.map (Maybe.withDefault "")
+                        -- |> List.filter (\s -> not (String.isEmpty s))
+                        -- |> Just
                         _ ->
                             Nothing
 
@@ -158,13 +201,17 @@ update msg model =
                                     Debug.log (Debug.toString id) 3
                             in
                             Just
-                                { comicNames = Maybe.withDefault [] comicNames
+                                { comics = Maybe.withDefault [] comics
                                 , characterId = Maybe.withDefault (Scalar.Id "") id
                                 }
 
                         _ ->
                             Nothing
 
+                -- effect =
+                --     case workingComics of
+                --         Just working ->
+                --         Nothing -> Nothing
                 _ =
                     Debug.log (Debug.toString workingComics) 3
             in
@@ -193,14 +240,28 @@ runEffect model effect =
 
 
 
---- GraphQL
+--- API
+
+
+type alias SummaryData =
+    { name : Maybe String
+    , resourceUri : Maybe String
+    }
 
 
 type alias CharactersComicsDetails =
     { id : Maybe Scalar.Id
 
     -- , name : Maybe String
-    , comics : Maybe (List (Maybe String))
+    , comics : Maybe (List SummaryData)
+    }
+
+
+type alias ComicsCharactersDetails =
+    { id : Maybe Scalar.Id
+
+    -- , name : Maybe String
+    , characters : Maybe (List (Maybe String))
     }
 
 
@@ -239,7 +300,12 @@ characterQuery name =
         )
         (SelectionSet.map2 CharactersComicsDetails
             CharacterApi.id
-            (CharacterApi.comics Summary.name)
+            (CharacterApi.comics
+                (SelectionSet.map2 SummaryData
+                    Summary.name
+                    Summary.resourceURI
+                )
+            )
         )
 
 
@@ -253,6 +319,7 @@ view model =
         [ heroInput model.startHero
         , heroSubmitButton model.startHero
         , viewConnection model.connection
+        , div [] [ text "Data provided by Marvel. © 2014 Marvel" ]
         ]
         |> Html.toUnstyled
 
@@ -264,7 +331,7 @@ writeConnection connection =
             "Squirrel Girl"
 
         conn :: conns ->
-            conn.hero ++ " is in " ++ conn.comic ++ " with " ++ writeConnection conns
+            conn.hero ++ " is in " ++ conn.comic.name ++ " with " ++ writeConnection conns
 
 
 viewConnection : Maybe (List Connection) -> Html Msg
