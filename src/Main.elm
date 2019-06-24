@@ -31,6 +31,9 @@ import Graphql.OptionalArgument exposing (OptionalArgument(..))
 import Graphql.SelectionSet as SelectionSet exposing (SelectionSet, with)
 import Html as NormHtml
 import Html.Styled.Events exposing (onClick, onInput)
+import Http
+import Json.Decode as Json
+import Json.Decode.Pipeline exposing (hardcoded, optional, required)
 import Marvelql.InputObject exposing (buildCharacterWhereInput, buildComicWhereInput)
 import Marvelql.Object exposing (Character(..), Comic(..))
 import Marvelql.Object.Character as CharacterApi
@@ -114,6 +117,8 @@ type Msg
     = UserUpdatedStartHero String
     | UserRequestsConnection
     | GotCharactersComicsDetails (RemoteData (Graphql.Http.Error (Maybe (List CharactersComicsDetails))) (Maybe (List CharactersComicsDetails)))
+    | GotComicCharacters (Result Http.Error (List RestComicCharacterDetails))
+    | UserRequestsFurtherConnections
 
 
 
@@ -122,6 +127,7 @@ type Msg
 
 type Effect
     = LoadCharacterInfo
+    | LoadComicCharacters
 
 
 
@@ -165,7 +171,7 @@ update msg model =
                                                 case comic.resourceUri of
                                                     Just resourceUri ->
                                                         -- hacky
-                                                        Just [ { name = name, resource = resourceUri ++ "/characters" } ]
+                                                        Just [ { name = name, resource = resourceUri } ]
 
                                                     Nothing ->
                                                         Nothing
@@ -177,13 +183,6 @@ update msg model =
                                 |> List.concat
                                 |> Just
 
-                        -- |> Maybe.unwrap [] (List.map .comics)
-                        -- |> List.concatMap (Maybe.withDefault [])
-                        -- |> Just
-                        -- |> List.pluck .name
-                        -- |> List.map (Maybe.withDefault "")
-                        -- |> List.filter (\s -> not (String.isEmpty s))
-                        -- |> Just
                         _ ->
                             Nothing
 
@@ -196,9 +195,6 @@ update msg model =
                                         |> Maybe.unwrap [] (List.map .id)
                                         |> List.map (Maybe.withDefault (Scalar.Id ""))
                                         |> List.head
-
-                                _ =
-                                    Debug.log (Debug.toString id) 3
                             in
                             Just
                                 { comics = Maybe.withDefault [] comics
@@ -216,6 +212,16 @@ update msg model =
                     Debug.log (Debug.toString workingComics) 3
             in
             ( { model | workingComics = workingComics }, Nothing )
+
+        GotComicCharacters result ->
+            let
+                _ =
+                    Debug.log (Debug.toString result) 3
+            in
+            ( model, Nothing )
+
+        UserRequestsFurtherConnections ->
+            ( model, Just LoadComicCharacters )
 
 
 
@@ -237,6 +243,14 @@ runEffect model effect =
             characterQuery model.startHero
                 |> Graphql.Http.queryRequest "https://api.marvelql.com/"
                 |> Graphql.Http.send (RemoteData.fromResult >> GotCharactersComicsDetails)
+
+        LoadComicCharacters ->
+            case model.workingComics of
+                Just workingComics ->
+                    comicQuery (Maybe.map .resource (List.head workingComics.comics))
+
+                Nothing ->
+                    Cmd.none
 
 
 
@@ -309,6 +323,65 @@ characterQuery name =
         )
 
 
+comicQuery : Maybe String -> Cmd Msg
+comicQuery uri =
+    case uri of
+        Just url ->
+            Http.get
+                { url = url ++ "/characters?ts=1&apikey=91cd822df1814786af8af9eb2fbaa1b3&hash=85451d29757f46077d38b315d32990b2"
+                , expect = Http.expectJson GotComicCharacters comicCharactersDecoder
+                }
+
+        Nothing ->
+            Cmd.none
+
+
+
+-- in data, in results which is an array of
+-- I want id, name, and comics with available and items with resource and name
+
+
+type alias RestComicCharacterDetails =
+    { id : Int
+    , name : String
+    , comics : ComicInfo
+    }
+
+
+type alias ComicInfo =
+    { available : Int, items : List RestComicDetails }
+
+
+type alias RestComicDetails =
+    { resourceURI : String
+    , name : String
+    }
+
+
+comicCharactersDecoder : Json.Decoder (List RestComicCharacterDetails)
+comicCharactersDecoder =
+    Json.field "data"
+        (Json.field "results"
+            (Json.list
+                (Json.succeed RestComicCharacterDetails
+                    |> required "id" Json.int
+                    |> required "name" Json.string
+                    |> required "comics"
+                        (Json.succeed ComicInfo
+                            |> required "available" Json.int
+                            |> required "items"
+                                (Json.list
+                                    (Json.succeed RestComicDetails
+                                        |> required "resourceURI" Json.string
+                                        |> required "name" Json.string
+                                    )
+                                )
+                        )
+                )
+            )
+        )
+
+
 
 --- View
 
@@ -318,6 +391,7 @@ view model =
     div []
         [ heroInput model.startHero
         , heroSubmitButton model.startHero
+        , comicLookupButton model.workingComics
         , viewConnection model.connection
         , div [] [ text "Data provided by Marvel. © 2014 Marvel" ]
         ]
@@ -353,6 +427,13 @@ heroSubmitButton name =
     button
         [ onClick UserRequestsConnection ]
         [ text "connect the spider-man to squirrel girl" ]
+
+
+comicLookupButton : Maybe WorkingComics -> Html Msg
+comicLookupButton workingComics =
+    button
+        [ onClick UserRequestsFurtherConnections ]
+        [ text "look at the spider's friends" ]
 
 
 
