@@ -80,6 +80,12 @@ type alias Connection =
     }
 
 
+type alias WorkingComics =
+    { characterId : Scalar.Id
+    , comics : List ComicDetail
+    }
+
+
 init : ( Model, Maybe Effect )
 init =
     let
@@ -121,23 +127,9 @@ type Msg
     | UserRequestsFurtherConnections
 
 
-
--- | GotComicResponse (RemoteData (Graphql.Http.Error (Maybe (List ComicDetails))) (Maybe (List ComicDetails)))
-
-
 type Effect
     = LoadCharacterInfo
     | LoadComicCharacters
-
-
-
--- | LoadComicInfo CharactersComicsDetails
-
-
-type alias WorkingComics =
-    { characterId : Scalar.Id
-    , comics : List ComicDetail
-    }
 
 
 update : Msg -> Model -> ( Model, Maybe Effect )
@@ -219,10 +211,6 @@ pluckComics details =
         |> Just
 
 
-
--- GotComicResponse
-
-
 perform : ( Model, Maybe Effect ) -> ( Model, Cmd Msg )
 perform ( model, effects ) =
     ( model
@@ -263,14 +251,6 @@ type alias CharactersComicsDetails =
 
     -- , name : Maybe String
     , comics : Maybe (List SummaryData)
-    }
-
-
-type alias ComicsCharactersDetails =
-    { id : Maybe Scalar.Id
-
-    -- , name : Maybe String
-    , characters : Maybe (List (Maybe String))
     }
 
 
