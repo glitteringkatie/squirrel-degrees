@@ -58,7 +58,7 @@ type alias Model =
     , workingConnections4 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
     , workingConnections5 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
     , workingConnections6 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
-    , workingComics : Maybe WorkingComics
+    , workingComics : Maybe PendingComics
     , startHero : String
     }
 
@@ -67,22 +67,29 @@ type alias Model =
 -- will also have a working graph but idk what that'll look like yet
 
 
-type alias ComicDetail =
+type alias Comic =
     { name : String
     , resource : String
     }
 
 
+type alias Character =
+    { name : String
+    , id : Marvelql.ScalarCodecs.Id
+    , resource : String
+    }
+
+
 type alias Connection =
-    { hero : String
-    , comic : ComicDetail
+    { character : String
+    , comic : Comic
     , parentId : Maybe Marvelql.ScalarCodecs.Id
     }
 
 
-type alias WorkingComics =
+type alias PendingComics =
     { characterId : Scalar.Id
-    , comics : List ComicDetail
+    , comics : List Comic
     }
 
 
@@ -95,7 +102,7 @@ init =
     ( { startHero = startHero
       , connection =
             Just
-                [ { hero = startHero
+                [ { character = startHero
                   , comic =
                         { name = "BFFs"
                         , resource = "https://www.bffs.com"
@@ -122,8 +129,8 @@ init =
 type Msg
     = UserUpdatedStartHero String
     | UserRequestsConnection
-    | GotCharactersComicsDetails (RemoteData (Graphql.Http.Error (Maybe (List CharactersComicsDetails))) (Maybe (List CharactersComicsDetails)))
-    | GotComicCharacters (Result Http.Error (List RestComicCharacterDetails))
+    | GotCharactersComicsDetails (RemoteData (Graphql.Http.Error (Maybe (List SummaryComicsForCharacter))) (Maybe (List SummaryComicsForCharacter)))
+    | GotComicCharacters (Result Http.Error (List ComicsForCharacter))
     | UserRequestsFurtherConnections
 
 
@@ -169,7 +176,7 @@ update msg model =
             ( model, Just LoadComicCharacters )
 
 
-allOrNothing : Maybe (List CharactersComicsDetails) -> Maybe WorkingComics
+allOrNothing : Maybe (List SummaryComicsForCharacter) -> Maybe PendingComics
 allOrNothing details =
     case ( pluckId details, pluckComics details ) of
         ( Just id, Just comics ) ->
@@ -182,7 +189,7 @@ allOrNothing details =
             Nothing
 
 
-pluckId : Maybe (List CharactersComicsDetails) -> Maybe Scalar.Id
+pluckId : Maybe (List SummaryComicsForCharacter) -> Maybe Scalar.Id
 pluckId details =
     details
         |> Maybe.unwrap [] (List.map .id)
@@ -191,7 +198,7 @@ pluckId details =
         |> List.head
 
 
-pluckComics : Maybe (List CharactersComicsDetails) -> Maybe (List ComicDetail)
+pluckComics : Maybe (List SummaryComicsForCharacter) -> Maybe (List Comic)
 pluckComics details =
     details
         |> Maybe.unwrap [] (List.map .comics)
@@ -246,7 +253,7 @@ type alias SummaryData =
     }
 
 
-type alias CharactersComicsDetails =
+type alias SummaryComicsForCharacter =
     { id : Maybe Scalar.Id
 
     -- , name : Maybe String
@@ -272,7 +279,7 @@ unwrapComicNames comics =
 -- }"
 
 
-characterQuery : String -> SelectionSet (Maybe (List CharactersComicsDetails)) RootQuery
+characterQuery : String -> SelectionSet (Maybe (List SummaryComicsForCharacter)) RootQuery
 characterQuery name =
     let
         whereClause =
@@ -283,11 +290,9 @@ characterQuery name =
     in
     Query.characters
         (\optionals ->
-            { optionals
-                | where_ = Present whereClause
-            }
+            { optionals | where_ = Present whereClause }
         )
-        (SelectionSet.map2 CharactersComicsDetails
+        (SelectionSet.map2 SummaryComicsForCharacter
             CharacterApi.id
             (CharacterApi.comics
                 (SelectionSet.map2 SummaryData
@@ -316,7 +321,7 @@ comicQuery uri =
 -- I want id, name, and comics with available and items with resource and name
 
 
-type alias RestComicCharacterDetails =
+type alias ComicsForCharacter =
     { id : Int
     , name : String
     , comics : ComicInfo
@@ -324,36 +329,36 @@ type alias RestComicCharacterDetails =
 
 
 type alias ComicInfo =
-    { available : Int, items : List RestComicDetails }
+    { available : Int, items : List Comic }
 
 
-type alias RestComicDetails =
-    { resourceURI : String
-    , name : String
-    }
-
-
-comicCharactersDecoder : Json.Decoder (List RestComicCharacterDetails)
+comicCharactersDecoder : Json.Decoder (List ComicsForCharacter)
 comicCharactersDecoder =
     Json.field "data"
         (Json.field "results"
             (Json.list
-                (Json.succeed RestComicCharacterDetails
+                (Json.succeed ComicsForCharacter
                     |> required "id" Json.int
                     |> required "name" Json.string
-                    |> required "comics"
-                        (Json.succeed ComicInfo
-                            |> required "available" Json.int
-                            |> required "items"
-                                (Json.list
-                                    (Json.succeed RestComicDetails
-                                        |> required "resourceURI" Json.string
-                                        |> required "name" Json.string
-                                    )
-                                )
-                        )
+                    |> required "comics" comicInfoDecoder
                 )
             )
+        )
+
+
+comicInfoDecoder : Json.Decoder ComicInfo
+comicInfoDecoder =
+    Json.succeed ComicInfo
+        |> required "available" Json.int
+        |> required "items" comicsDecoder
+
+
+comicsDecoder : Json.Decoder (List Comic)
+comicsDecoder =
+    Json.list
+        (Json.succeed Comic
+            |> required "name" Json.string
+            |> required "resourceURI" Json.string
         )
 
 
@@ -380,7 +385,7 @@ writeConnection connection =
             "Squirrel Girl"
 
         conn :: conns ->
-            conn.hero ++ " is in " ++ conn.comic.name ++ " with " ++ writeConnection conns
+            conn.character ++ " is in " ++ conn.comic.name ++ " with " ++ writeConnection conns
 
 
 viewConnection : Maybe (List Connection) -> Html Msg
@@ -404,7 +409,7 @@ heroSubmitButton name =
         [ text "connect the spider-man to squirrel girl" ]
 
 
-comicLookupButton : Maybe WorkingComics -> Html Msg
+comicLookupButton : Maybe PendingComics -> Html Msg
 comicLookupButton workingComics =
     button
         [ onClick UserRequestsFurtherConnections ]
