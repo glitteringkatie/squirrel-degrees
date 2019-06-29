@@ -168,14 +168,50 @@ update msg model =
             ( { model | workingComics = workingComics }, Nothing )
 
         GotComicCharacters result ->
+            -- time to build up a connection and add it to WorkingConnections1
             let
-                _ =
-                    case result of
-                        Ok some ->
-                            Debug.log (Debug.toString (List.map .name some)) 3
+                parentCharacter =
+                    case model.workingComics of
+                        Just workingComics ->
+                            Just workingComics.characterId
 
+                        Nothing ->
+                            Nothing
+
+                connectingComic =
+                    case model.workingComics of
+                        Just workingComics ->
+                            workingComics.comics
+                                |> List.head
+                                |> Maybe.map .name
+
+                        Nothing ->
+                            Nothing
+
+                characters =
+                    case result of
+                        Ok characterList ->
+                            characterList
+                                |> List.map (\character -> { name = character.name, id = character.id })
+                                |> Just
+
+                        -- contains the next batch of comics, I only want the character names and their ids though
                         _ ->
-                            Debug.log "whoops" 3
+                            Nothing
+
+                _ =
+                    Debug.log (Debug.toString ( parentCharacter, connectingComic, characters )) 3
+
+                -- connection =
+                --     case (parentCharacter, connectingComic) of
+                --         (Just id, Just title) ->
+                --             Just
+                --                 { character = ""
+                --                 , comic = Comic
+                --                 , parentId = parentCharacter
+                --                 }
+                --         _ ->
+                --             Nothing
             in
             ( model, Nothing )
 
