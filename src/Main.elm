@@ -59,6 +59,7 @@ type alias Model =
     , workingConnections5 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
     , workingConnections6 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
     , workingComics : Maybe PendingComics
+    , workingGraph : List ( Comic, Character ) -- where the comic connects the character to their neighbor
     , endCharacter : String
     }
 
@@ -116,6 +117,7 @@ init =
       , workingConnections4 = Nothing
       , workingConnections5 = Nothing
       , workingConnections6 = Nothing
+      , workingGraph = []
       , workingComics = Nothing -- comics I am currently working off of
       }
     , Nothing
@@ -160,7 +162,7 @@ update msg model =
 
                 -- effect =
                 --     case workingComics of
-                --         Just working ->
+                --         Just working -> either we found the end character or we keep looking
                 --         Nothing -> Nothing
             in
             ( { model | workingComics = workingComics }, Nothing )
@@ -168,7 +170,12 @@ update msg model =
         GotComicCharacters result ->
             let
                 _ =
-                    Debug.log (Debug.toString result) 3
+                    case result of
+                        Ok some ->
+                            Debug.log (Debug.toString (List.map .name some)) 3
+
+                        _ ->
+                            Debug.log "whoops" 3
             in
             ( model, Nothing )
 
@@ -230,14 +237,14 @@ runEffect : Model -> Effect -> Cmd Msg
 runEffect model effect =
     case effect of
         LoadCharacterInfo ->
-            characterQuery model.endCharacter
+            startQuery
                 |> Graphql.Http.queryRequest "https://api.marvelql.com/"
                 |> Graphql.Http.send (RemoteData.fromResult >> GotCharactersComicsDetails)
 
         LoadComicCharacters ->
             case model.workingComics of
                 Just workingComics ->
-                    comicQuery (Maybe.map .resource (List.head workingComics.comics))
+                    comicQuery (List.head workingComics.comics)
 
                 Nothing ->
                     Cmd.none
@@ -279,13 +286,13 @@ unwrapComicNames comics =
 -- }"
 
 
-characterQuery : String -> SelectionSet (Maybe (List SummaryComicsForCharacter)) RootQuery
-characterQuery name =
+startQuery : SelectionSet (Maybe (List SummaryComicsForCharacter)) RootQuery
+startQuery =
     let
         whereClause =
             buildCharacterWhereInput
                 (\optionals ->
-                    { optionals | name = Present "Spider-Man" }
+                    { optionals | name = Present "Squirrel Girl" }
                 )
     in
     Query.characters
@@ -303,13 +310,13 @@ characterQuery name =
         )
 
 
-comicQuery : Maybe String -> Cmd Msg
-comicQuery uri =
-    case uri of
-        Just url ->
+comicQuery : Maybe Comic -> Cmd Msg
+comicQuery comic =
+    case comic of
+        Just book ->
             Http.get
-                { url = url ++ "/characters?ts=1&apikey=91cd822df1814786af8af9eb2fbaa1b3&hash=85451d29757f46077d38b315d32990b2"
-                , expect = Http.expectJson GotComicCharacters comicCharactersDecoder
+                { url = book.resource ++ "/characters?ts=1&apikey=91cd822df1814786af8af9eb2fbaa1b3&hash=85451d29757f46077d38b315d32990b2"
+                , expect = Http.expectJson GotComicCharacters (comicCharactersDecoder book)
                 }
 
         Nothing ->
@@ -323,6 +330,7 @@ comicQuery uri =
 
 type alias ComicsForCharacter =
     { id : Int
+    , parentComic : Comic
     , name : String
     , comics : ComicInfo
     }
@@ -332,13 +340,14 @@ type alias ComicInfo =
     { available : Int, items : List Comic }
 
 
-comicCharactersDecoder : Json.Decoder (List ComicsForCharacter)
-comicCharactersDecoder =
+comicCharactersDecoder : Comic -> Json.Decoder (List ComicsForCharacter)
+comicCharactersDecoder comic =
     Json.field "data"
         (Json.field "results"
             (Json.list
                 (Json.succeed ComicsForCharacter
                     |> required "id" Json.int
+                    |> hardcoded comic
                     |> required "name" Json.string
                     |> required "comics" comicInfoDecoder
                 )
