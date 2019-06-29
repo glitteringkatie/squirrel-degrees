@@ -132,7 +132,7 @@ type Msg
     = UserUpdatedEndCharacter String
     | UserRequestsConnection
     | GotCharactersComicsDetails (RemoteData (Graphql.Http.Error (Maybe (List SummaryComicsForCharacter))) (Maybe (List SummaryComicsForCharacter)))
-    | GotComicCharacters (Result Http.Error (List ComicsForCharacter))
+    | GotComicCharacters Comic (Result Http.Error (List ComicsForCharacter))
     | UserRequestsFurtherConnections
 
 
@@ -167,7 +167,7 @@ update msg model =
             in
             ( { model | workingComics = workingComics }, Nothing )
 
-        GotComicCharacters result ->
+        GotComicCharacters parentComic result ->
             -- time to build up a connection and add it to WorkingConnections1
             let
                 parentCharacter =
@@ -178,15 +178,12 @@ update msg model =
                         Nothing ->
                             Nothing
 
-                connectingComic =
-                    case model.workingComics of
-                        Just workingComics ->
-                            workingComics.comics
-                                |> List.head
-
-                        Nothing ->
-                            Nothing
-
+                -- case model.workingComics of
+                --     Just workingComics ->
+                --         workingComics.comics
+                --             |> List.head
+                --     Nothing ->
+                --         Nothing
                 characters =
                     case result of
                         Ok characterList ->
@@ -201,8 +198,8 @@ update msg model =
                 -- _ =
                 --     Debug.log (Debug.toString ( parentCharacter, connectingComic, characters )) 3
                 buildConnection character =
-                    case ( parentCharacter, connectingComic ) of
-                        ( Just id, Just title ) ->
+                    case parentCharacter of
+                        Just id ->
                             if isEqualScalarInt id character.id then
                                 Nothing
                                 -- Don't add the parent character!
@@ -211,7 +208,7 @@ update msg model =
                                 Just
                                     ( character.id
                                     , { character = character.name
-                                      , comic = title
+                                      , comic = parentComic
                                       , parentId = Just id
                                       }
                                     )
@@ -235,7 +232,7 @@ update msg model =
                             Just connections
 
                 _ =
-                    Debug.log (Debug.toString updatedConnections) 3
+                    Debug.log (Debug.toString (Maybe.map Dict.size updatedConnections)) 3
             in
             ( { model | workingConnections1 = updatedConnections }, Nothing )
 
@@ -304,7 +301,9 @@ runEffect model effect =
         LoadComicCharacters ->
             case model.workingComics of
                 Just workingComics ->
-                    comicQuery (List.head workingComics.comics)
+                    workingComics.comics
+                        |> List.map comicQuery
+                        |> Cmd.batch
 
                 Nothing ->
                     Cmd.none
@@ -370,17 +369,12 @@ startQuery =
         )
 
 
-comicQuery : Maybe Comic -> Cmd Msg
+comicQuery : Comic -> Cmd Msg
 comicQuery comic =
-    case comic of
-        Just book ->
-            Http.get
-                { url = book.resource ++ "/characters?ts=1&apikey=***REMOVED***&hash=***REMOVED***"
-                , expect = Http.expectJson GotComicCharacters (comicCharactersDecoder book)
-                }
-
-        Nothing ->
-            Cmd.none
+    Http.get
+        { url = comic.resource ++ "/characters?ts=1&apikey=***REMOVED***&hash=***REMOVED***"
+        , expect = Http.expectJson (GotComicCharacters comic) comicCharactersDecoder
+        }
 
 
 
@@ -390,7 +384,6 @@ comicQuery comic =
 
 type alias ComicsForCharacter =
     { id : Int
-    , parentComic : Comic
     , name : String
     , comics : ComicInfo
     }
@@ -400,14 +393,13 @@ type alias ComicInfo =
     { available : Int, items : List Comic }
 
 
-comicCharactersDecoder : Comic -> Json.Decoder (List ComicsForCharacter)
-comicCharactersDecoder comic =
+comicCharactersDecoder : Json.Decoder (List ComicsForCharacter)
+comicCharactersDecoder =
     Json.field "data"
         (Json.field "results"
             (Json.list
                 (Json.succeed ComicsForCharacter
                     |> required "id" Json.int
-                    |> hardcoded comic
                     |> required "name" Json.string
                     |> required "comics" comicInfoDecoder
                 )
