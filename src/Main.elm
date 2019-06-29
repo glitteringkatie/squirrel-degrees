@@ -203,13 +203,18 @@ update msg model =
                 buildConnection character =
                     case ( parentCharacter, connectingComic ) of
                         ( Just id, Just title ) ->
-                            Just
-                                ( character.id
-                                , { character = character.name
-                                  , comic = title
-                                  , parentId = Just id
-                                  }
-                                )
+                            if isEqualScalarInt id character.id then
+                                Nothing
+                                -- Don't add the parent character!
+
+                            else
+                                Just
+                                    ( character.id
+                                    , { character = character.name
+                                      , comic = title
+                                      , parentId = Just id
+                                      }
+                                    )
 
                         _ ->
                             Nothing
@@ -492,3 +497,17 @@ main =
         , update = \msg model -> perform (update msg model)
         , subscriptions = always Sub.none
         }
+
+
+
+-- Scalar.Id helpers
+
+
+isEqualScalarInt : Scalar.Id -> Int -> Bool
+isEqualScalarInt (Scalar.Id scalar) id =
+    case String.toInt scalar of
+        Just s ->
+            s == id
+
+        Nothing ->
+            False
