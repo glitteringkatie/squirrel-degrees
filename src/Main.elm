@@ -2,7 +2,7 @@ module Main exposing
     ( Connection
     , Model
     , Msg(..)
-    , heroInput
+    , characterInput
     , init
     , main
     , update
@@ -59,7 +59,8 @@ type alias Model =
     , workingConnections5 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
     , workingConnections6 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
     , workingComics : Maybe PendingComics
-    , startHero : String
+    , workingGraph : List ( Comic, Character ) -- where the comic connects the character to their neighbor
+    , endCharacter : String
     }
 
 
@@ -96,13 +97,13 @@ type alias PendingComics =
 init : ( Model, Maybe Effect )
 init =
     let
-        startHero =
+        endCharacter =
             "Spider-Man"
     in
-    ( { startHero = startHero
+    ( { endCharacter = endCharacter
       , connection =
             Just
-                [ { character = startHero
+                [ { character = endCharacter
                   , comic =
                         { name = "BFFs"
                         , resource = "https://www.bffs.com"
@@ -116,6 +117,7 @@ init =
       , workingConnections4 = Nothing
       , workingConnections5 = Nothing
       , workingConnections6 = Nothing
+      , workingGraph = []
       , workingComics = Nothing -- comics I am currently working off of
       }
     , Nothing
@@ -127,7 +129,7 @@ init =
 
 
 type Msg
-    = UserUpdatedStartHero String
+    = UserUpdatedEndCharacter String
     | UserRequestsConnection
     | GotCharactersComicsDetails (RemoteData (Graphql.Http.Error (Maybe (List SummaryComicsForCharacter))) (Maybe (List SummaryComicsForCharacter)))
     | GotComicCharacters (Result Http.Error (List ComicsForCharacter))
@@ -142,8 +144,8 @@ type Effect
 update : Msg -> Model -> ( Model, Maybe Effect )
 update msg model =
     case msg of
-        UserUpdatedStartHero name ->
-            ( { model | startHero = name }, Nothing )
+        UserUpdatedEndCharacter name ->
+            ( { model | endCharacter = name }, Nothing )
 
         UserRequestsConnection ->
             ( model, Just LoadCharacterInfo )
@@ -160,7 +162,7 @@ update msg model =
 
                 -- effect =
                 --     case workingComics of
-                --         Just working ->
+                --         Just working -> either we found the end character or we keep looking
                 --         Nothing -> Nothing
             in
             ( { model | workingComics = workingComics }, Nothing )
@@ -168,7 +170,12 @@ update msg model =
         GotComicCharacters result ->
             let
                 _ =
-                    Debug.log (Debug.toString result) 3
+                    case result of
+                        Ok some ->
+                            Debug.log (Debug.toString (List.map .name some)) 3
+
+                        _ ->
+                            Debug.log "whoops" 3
             in
             ( model, Nothing )
 
@@ -230,14 +237,14 @@ runEffect : Model -> Effect -> Cmd Msg
 runEffect model effect =
     case effect of
         LoadCharacterInfo ->
-            characterQuery model.startHero
+            startQuery
                 |> Graphql.Http.queryRequest "https://api.marvelql.com/"
                 |> Graphql.Http.send (RemoteData.fromResult >> GotCharactersComicsDetails)
 
         LoadComicCharacters ->
             case model.workingComics of
                 Just workingComics ->
-                    comicQuery (Maybe.map .resource (List.head workingComics.comics))
+                    comicQuery (List.head workingComics.comics)
 
                 Nothing ->
                     Cmd.none
@@ -279,13 +286,13 @@ unwrapComicNames comics =
 -- }"
 
 
-characterQuery : String -> SelectionSet (Maybe (List SummaryComicsForCharacter)) RootQuery
-characterQuery name =
+startQuery : SelectionSet (Maybe (List SummaryComicsForCharacter)) RootQuery
+startQuery =
     let
         whereClause =
             buildCharacterWhereInput
                 (\optionals ->
-                    { optionals | name = Present "Spider-Man" }
+                    { optionals | name = Present "Squirrel Girl" }
                 )
     in
     Query.characters
@@ -303,13 +310,13 @@ characterQuery name =
         )
 
 
-comicQuery : Maybe String -> Cmd Msg
-comicQuery uri =
-    case uri of
-        Just url ->
+comicQuery : Maybe Comic -> Cmd Msg
+comicQuery comic =
+    case comic of
+        Just book ->
             Http.get
-                { url = url ++ "/characters?ts=1&apikey=***REMOVED***&hash=***REMOVED***"
-                , expect = Http.expectJson GotComicCharacters comicCharactersDecoder
+                { url = book.resource ++ "/characters?ts=1&apikey=***REMOVED***&hash=***REMOVED***"
+                , expect = Http.expectJson GotComicCharacters (comicCharactersDecoder book)
                 }
 
         Nothing ->
@@ -323,6 +330,7 @@ comicQuery uri =
 
 type alias ComicsForCharacter =
     { id : Int
+    , parentComic : Comic
     , name : String
     , comics : ComicInfo
     }
@@ -332,13 +340,14 @@ type alias ComicInfo =
     { available : Int, items : List Comic }
 
 
-comicCharactersDecoder : Json.Decoder (List ComicsForCharacter)
-comicCharactersDecoder =
+comicCharactersDecoder : Comic -> Json.Decoder (List ComicsForCharacter)
+comicCharactersDecoder comic =
     Json.field "data"
         (Json.field "results"
             (Json.list
                 (Json.succeed ComicsForCharacter
                     |> required "id" Json.int
+                    |> hardcoded comic
                     |> required "name" Json.string
                     |> required "comics" comicInfoDecoder
                 )
@@ -369,8 +378,8 @@ comicsDecoder =
 view : Model -> NormHtml.Html Msg
 view model =
     div []
-        [ heroInput model.startHero
-        , heroSubmitButton model.startHero
+        [ characterInput model.endCharacter
+        , characterSubmitButton model.endCharacter
         , comicLookupButton model.workingComics
         , viewConnection model.connection
         , div [] [ text "Data provided by Marvel. © 2014 Marvel" ]
@@ -393,17 +402,17 @@ viewConnection connection =
     div [] [ text (Maybe.unwrap "No connection" writeConnection connection) ]
 
 
-heroInput : String -> Html Msg
-heroInput name =
+characterInput : String -> Html Msg
+characterInput name =
     labelHidden
-        "hero-name-input"
+        "character-name-input"
         []
-        (text "Hero Name:")
-        (inputText name [ onInput UserUpdatedStartHero ])
+        (text "Character Name:")
+        (inputText name [ onInput UserUpdatedEndCharacter ])
 
 
-heroSubmitButton : String -> Html Msg
-heroSubmitButton name =
+characterSubmitButton : String -> Html Msg
+characterSubmitButton name =
     button
         [ onClick UserRequestsConnection ]
         [ text "connect the spider-man to squirrel girl" ]
@@ -413,7 +422,7 @@ comicLookupButton : Maybe PendingComics -> Html Msg
 comicLookupButton workingComics =
     button
         [ onClick UserRequestsFurtherConnections ]
-        [ text "look at the spider's friends" ]
+        [ text "look at the squirrel's friends" ]
 
 
 
