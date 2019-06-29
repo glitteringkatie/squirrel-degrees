@@ -52,12 +52,12 @@ import RemoteData exposing (RemoteData)
 
 type alias Model =
     { connection : Maybe (List Connection)
-    , workingConnections1 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
-    , workingConnections2 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
-    , workingConnections3 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
-    , workingConnections4 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
-    , workingConnections5 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
-    , workingConnections6 : Maybe (Dict Marvelql.ScalarCodecs.Id Connection)
+    , workingConnections1 : Maybe (Dict Int Connection)
+    , workingConnections2 : Maybe (Dict Int Connection)
+    , workingConnections3 : Maybe (Dict Int Connection)
+    , workingConnections4 : Maybe (Dict Int Connection)
+    , workingConnections5 : Maybe (Dict Int Connection)
+    , workingConnections6 : Maybe (Dict Int Connection)
     , workingComics : Maybe PendingComics
     , workingGraph : List ( Comic, Character ) -- where the comic connects the character to their neighbor
     , endCharacter : String
@@ -76,7 +76,7 @@ type alias Comic =
 
 type alias Character =
     { name : String
-    , id : Marvelql.ScalarCodecs.Id
+    , id : Int
     , resource : String
     }
 
@@ -84,7 +84,7 @@ type alias Character =
 type alias Connection =
     { character : String
     , comic : Comic
-    , parentId : Maybe Marvelql.ScalarCodecs.Id
+    , parentId : Maybe Scalar.Id
     }
 
 
@@ -168,16 +168,71 @@ update msg model =
             ( { model | workingComics = workingComics }, Nothing )
 
         GotComicCharacters result ->
+            -- time to build up a connection and add it to WorkingConnections1
             let
-                _ =
+                parentCharacter =
+                    case model.workingComics of
+                        Just workingComics ->
+                            Just workingComics.characterId
+
+                        Nothing ->
+                            Nothing
+
+                connectingComic =
+                    case model.workingComics of
+                        Just workingComics ->
+                            workingComics.comics
+                                |> List.head
+
+                        Nothing ->
+                            Nothing
+
+                characters =
                     case result of
-                        Ok some ->
-                            Debug.log (Debug.toString (List.map .name some)) 3
+                        Ok characterList ->
+                            characterList
+                                |> List.map (\character -> { name = character.name, id = character.id })
+                                |> Just
+
+                        -- contains the next batch of comics, I only want the character names and their ids though
+                        _ ->
+                            Nothing
+
+                -- _ =
+                --     Debug.log (Debug.toString ( parentCharacter, connectingComic, characters )) 3
+                buildConnection character =
+                    case ( parentCharacter, connectingComic ) of
+                        ( Just id, Just title ) ->
+                            Just
+                                ( character.id
+                                , { character = character.name
+                                  , comic = title
+                                  , parentId = Just id
+                                  }
+                                )
 
                         _ ->
-                            Debug.log "whoops" 3
+                            Nothing
+
+                connections =
+                    characters
+                        |> Maybe.withDefault []
+                        |> List.map buildConnection
+                        |> Maybe.values
+                        |> Dict.fromList
+
+                updatedConnections =
+                    case model.workingConnections1 of
+                        Just connections1 ->
+                            Just (Dict.union connections1 connections)
+
+                        Nothing ->
+                            Just connections
+
+                _ =
+                    Debug.log (Debug.toString updatedConnections) 3
             in
-            ( model, Nothing )
+            ( { model | workingConnections1 = updatedConnections }, Nothing )
 
         UserRequestsFurtherConnections ->
             ( model, Just LoadComicCharacters )
