@@ -64,10 +64,6 @@ type alias Model =
     }
 
 
-
--- will also have a working graph but idk what that'll look like yet
-
-
 type alias Comic =
     { name : String
     , resource : String
@@ -117,7 +113,7 @@ init =
       , workingConnections4 = Nothing
       , workingConnections5 = Nothing
       , workingConnections6 = Nothing
-      , workingGraph = []
+      , workingGraph = [] -- an alternative to workingConnectionsN
       , workingComics = Nothing -- comics I am currently working off of
       }
     , Nothing
@@ -132,7 +128,7 @@ type Msg
     = UserUpdatedEndCharacter String
     | UserRequestsConnection
     | GotCharactersComicsDetails (RemoteData (Graphql.Http.Error (Maybe (List SummaryComicsForCharacter))) (Maybe (List SummaryComicsForCharacter)))
-    | GotComicCharacters (Result Http.Error (List ComicsForCharacter))
+    | GotComicCharacters Comic (Result Http.Error (List ComicsForCharacter))
     | UserRequestsFurtherConnections
 
 
@@ -164,25 +160,17 @@ update msg model =
                 --     case workingComics of
                 --         Just working -> either we found the end character or we keep looking
                 --         Nothing -> Nothing
+                -- also consider the case that the end character is our character and we don't have to do anything
             in
             ( { model | workingComics = workingComics }, Nothing )
 
-        GotComicCharacters result ->
+        GotComicCharacters parentComic result ->
             -- time to build up a connection and add it to WorkingConnections1
             let
                 parentCharacter =
                     case model.workingComics of
                         Just workingComics ->
                             Just workingComics.characterId
-
-                        Nothing ->
-                            Nothing
-
-                connectingComic =
-                    case model.workingComics of
-                        Just workingComics ->
-                            workingComics.comics
-                                |> List.head
 
                         Nothing ->
                             Nothing
@@ -194,22 +182,24 @@ update msg model =
                                 |> List.map (\character -> { name = character.name, id = character.id })
                                 |> Just
 
-                        -- contains the next batch of comics, I only want the character names and their ids though
                         _ ->
                             Nothing
 
-                -- _ =
-                --     Debug.log (Debug.toString ( parentCharacter, connectingComic, characters )) 3
                 buildConnection character =
-                    case ( parentCharacter, connectingComic ) of
-                        ( Just id, Just title ) ->
-                            Just
-                                ( character.id
-                                , { character = character.name
-                                  , comic = title
-                                  , parentId = Just id
-                                  }
-                                )
+                    case parentCharacter of
+                        Just id ->
+                            if isEqualScalarInt id character.id then
+                                Nothing
+                                -- Don't add the parent character!
+
+                            else
+                                Just
+                                    ( character.id
+                                    , { character = character.name
+                                      , comic = parentComic
+                                      , parentId = Just id
+                                      }
+                                    )
 
                         _ ->
                             Nothing
@@ -230,7 +220,7 @@ update msg model =
                             Just connections
 
                 _ =
-                    Debug.log (Debug.toString updatedConnections) 3
+                    Debug.log (Debug.toString (Maybe.map Dict.size updatedConnections)) 3
             in
             ( { model | workingConnections1 = updatedConnections }, Nothing )
 
@@ -299,7 +289,9 @@ runEffect model effect =
         LoadComicCharacters ->
             case model.workingComics of
                 Just workingComics ->
-                    comicQuery (List.head workingComics.comics)
+                    workingComics.comics
+                        |> List.map comicQuery
+                        |> Cmd.batch
 
                 Nothing ->
                     Cmd.none
@@ -331,16 +323,6 @@ unwrapComicNames comics =
         comics
 
 
-
--- type alias ComicDetails =
---     { id : Mabye Marvelql.ScalarCodecs.Id }
--- "query {
---   getCharacter3770981225: getCharacter(where: {name: "Spider-Man"}) {
---     id1079877010: id
---   }
--- }"
-
-
 startQuery : SelectionSet (Maybe (List SummaryComicsForCharacter)) RootQuery
 startQuery =
     let
@@ -365,27 +347,16 @@ startQuery =
         )
 
 
-comicQuery : Maybe Comic -> Cmd Msg
+comicQuery : Comic -> Cmd Msg
 comicQuery comic =
-    case comic of
-        Just book ->
-            Http.get
-                { url = book.resource ++ "/characters?ts=1&apikey=91cd822df1814786af8af9eb2fbaa1b3&hash=85451d29757f46077d38b315d32990b2"
-                , expect = Http.expectJson GotComicCharacters (comicCharactersDecoder book)
-                }
-
-        Nothing ->
-            Cmd.none
-
-
-
--- in data, in results which is an array of
--- I want id, name, and comics with available and items with resource and name
+    Http.get
+        { url = comic.resource ++ "/characters?ts=1&apikey=91cd822df1814786af8af9eb2fbaa1b3&hash=85451d29757f46077d38b315d32990b2"
+        , expect = Http.expectJson (GotComicCharacters comic) comicCharactersDecoder
+        }
 
 
 type alias ComicsForCharacter =
     { id : Int
-    , parentComic : Comic
     , name : String
     , comics : ComicInfo
     }
@@ -395,14 +366,13 @@ type alias ComicInfo =
     { available : Int, items : List Comic }
 
 
-comicCharactersDecoder : Comic -> Json.Decoder (List ComicsForCharacter)
-comicCharactersDecoder comic =
+comicCharactersDecoder : Json.Decoder (List ComicsForCharacter)
+comicCharactersDecoder =
     Json.field "data"
         (Json.field "results"
             (Json.list
                 (Json.succeed ComicsForCharacter
                     |> required "id" Json.int
-                    |> hardcoded comic
                     |> required "name" Json.string
                     |> required "comics" comicInfoDecoder
                 )
@@ -492,3 +462,17 @@ main =
         , update = \msg model -> perform (update msg model)
         , subscriptions = always Sub.none
         }
+
+
+
+-- Scalar.Id helpers
+
+
+isEqualScalarInt : Scalar.Id -> Int -> Bool
+isEqualScalarInt (Scalar.Id scalar) id =
+    case String.toInt scalar of
+        Just s ->
+            s == id
+
+        Nothing ->
+            False
