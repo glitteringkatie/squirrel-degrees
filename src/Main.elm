@@ -64,10 +64,6 @@ type alias Model =
     }
 
 
-
--- will also have a working graph but idk what that'll look like yet
-
-
 type alias Comic =
     { name : String
     , resource : String
@@ -117,7 +113,7 @@ init =
       , workingConnections4 = Nothing
       , workingConnections5 = Nothing
       , workingConnections6 = Nothing
-      , workingGraph = []
+      , workingGraph = [] -- an alternative to workingConnectionsN
       , workingComics = Nothing -- comics I am currently working off of
       }
     , Nothing
@@ -164,6 +160,7 @@ update msg model =
                 --     case workingComics of
                 --         Just working -> either we found the end character or we keep looking
                 --         Nothing -> Nothing
+                -- also consider the case that the end character is our character and we don't have to do anything
             in
             ( { model | workingComics = workingComics }, Nothing )
 
@@ -178,12 +175,6 @@ update msg model =
                         Nothing ->
                             Nothing
 
-                -- case model.workingComics of
-                --     Just workingComics ->
-                --         workingComics.comics
-                --             |> List.head
-                --     Nothing ->
-                --         Nothing
                 characters =
                     case result of
                         Ok characterList ->
@@ -191,12 +182,9 @@ update msg model =
                                 |> List.map (\character -> { name = character.name, id = character.id })
                                 |> Just
 
-                        -- contains the next batch of comics, I only want the character names and their ids though
                         _ ->
                             Nothing
 
-                -- _ =
-                --     Debug.log (Debug.toString ( parentCharacter, connectingComic, characters )) 3
                 buildConnection character =
                     case parentCharacter of
                         Just id ->
@@ -335,16 +323,6 @@ unwrapComicNames comics =
         comics
 
 
-
--- type alias ComicDetails =
---     { id : Mabye Marvelql.ScalarCodecs.Id }
--- "query {
---   getCharacter3770981225: getCharacter(where: {name: "Spider-Man"}) {
---     id1079877010: id
---   }
--- }"
-
-
 startQuery : SelectionSet (Maybe (List SummaryComicsForCharacter)) RootQuery
 startQuery =
     let
@@ -375,11 +353,6 @@ comicQuery comic =
         { url = comic.resource ++ "/characters?ts=1&apikey=91cd822df1814786af8af9eb2fbaa1b3&hash=85451d29757f46077d38b315d32990b2"
         , expect = Http.expectJson (GotComicCharacters comic) comicCharactersDecoder
         }
-
-
-
--- in data, in results which is an array of
--- I want id, name, and comics with available and items with resource and name
 
 
 type alias ComicsForCharacter =
