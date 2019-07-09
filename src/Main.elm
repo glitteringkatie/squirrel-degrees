@@ -34,6 +34,7 @@ import Html.Styled.Events exposing (onClick, onInput)
 import Http
 import Json.Decode as Json
 import Json.Decode.Pipeline exposing (hardcoded, optional, required)
+import List.Extra as List
 import Marvelql.InputObject exposing (buildCharacterWhereInput, buildComicWhereInput)
 import Marvelql.Object exposing (Character(..), Comic(..))
 import Marvelql.Object.Character as CharacterApi
@@ -51,22 +52,23 @@ import RemoteData exposing (RemoteData)
 
 
 type alias Model =
-    { connection : Maybe (List Connection)
-    , workingConnections1 : Maybe (Dict Int Connection)
-    , workingConnections2 : Maybe (Dict Int Connection)
-    , workingConnections3 : Maybe (Dict Int Connection)
-    , workingConnections4 : Maybe (Dict Int Connection)
-    , workingConnections5 : Maybe (Dict Int Connection)
-    , workingConnections6 : Maybe (Dict Int Connection)
-    , workingComics : Maybe PendingComics
-    , workingGraph : List ( Comic, Character ) -- where the comic connects the character to their neighbor
+    { workingConnections : WorkingConnections
+    , pendingComics : Maybe PendingComics
     , endCharacter : String
     }
 
 
-type alias Comic =
-    { name : String
-    , resource : String
+type WorkingConnections
+    = NotAsked
+    | Asked (List (Dict Int Connection))
+    | FoundConnection (List Connection)
+    | NoConnection
+    | Error String
+
+
+type alias PendingComics =
+    { characterId : Scalar.Id
+    , comics : Dict Int Comic
     }
 
 
@@ -77,16 +79,19 @@ type alias Character =
     }
 
 
+{-| connection =
+Just
+[
+{ character = endCharacter
+, comic = { name = "BFFs", resource = "https://www.bffs.com" }
+, parentId = Nothing
+}
+]
+-}
 type alias Connection =
     { character : String
     , comic : Comic
-    , parentId : Maybe Scalar.Id
-    }
-
-
-type alias PendingComics =
-    { characterId : Scalar.Id
-    , comics : List Comic
+    , parentId : Scalar.Id
     }
 
 
@@ -97,24 +102,8 @@ init =
             "Spider-Man"
     in
     ( { endCharacter = endCharacter
-      , connection =
-            Just
-                [ { character = endCharacter
-                  , comic =
-                        { name = "BFFs"
-                        , resource = "https://www.bffs.com"
-                        }
-                  , parentId = Nothing
-                  }
-                ]
-      , workingConnections1 = Nothing
-      , workingConnections2 = Nothing
-      , workingConnections3 = Nothing
-      , workingConnections4 = Nothing
-      , workingConnections5 = Nothing
-      , workingConnections6 = Nothing
-      , workingGraph = [] -- an alternative to workingConnectionsN
-      , workingComics = Nothing -- comics I am currently working off of
+      , workingConnections = NotAsked
+      , pendingComics = Nothing -- comics I am currently working off of
       }
     , Nothing
     )
@@ -144,11 +133,11 @@ update msg model =
             ( { model | endCharacter = name }, Nothing )
 
         UserRequestsConnection ->
-            ( model, Just LoadCharacterInfo )
+            ( { model | workingConnections = Asked [ Dict.empty ] }, Just LoadCharacterInfo )
 
         GotCharactersComicsDetails maybeDetails ->
             let
-                workingComics =
+                pendingComics =
                     case maybeDetails of
                         RemoteData.Success details ->
                             allOrNothing details
@@ -157,24 +146,44 @@ update msg model =
                             Nothing
 
                 -- effect =
-                --     case workingComics of
+                --     case pendingComics of
                 --         Just working -> either we found the end character or we keep looking
                 --         Nothing -> Nothing
                 -- also consider the case that the end character is our character and we don't have to do anything
             in
-            ( { model | workingComics = workingComics }, Nothing )
+            ( { model | pendingComics = pendingComics }, Nothing )
 
         GotComicCharacters parentComic result ->
-            -- time to build up a connection and add it to WorkingConnections1
+            -- time to build up a connection and add it to WorkingConnections
             let
-                parentCharacter =
-                    case model.workingComics of
-                        Just workingComics ->
-                            Just workingComics.characterId
+                -- needed to update pendingComics
+                updatedComics =
+                    case comicId parentComic.resource of
+                        Just parentComicId ->
+                            Maybe.map (.comics >> Dict.remove parentComicId) model.pendingComics
 
                         Nothing ->
                             Nothing
 
+                updatedPendingComics =
+                    case updatedComics of
+                        Just updated ->
+                            Maybe.map (\pendingComics -> { pendingComics | comics = updated }) model.pendingComics
+
+                        Nothing ->
+                            model.pendingComics
+
+                -- needed to update workingConnections
+                parentCharacter : Maybe Scalar.Id
+                parentCharacter =
+                    case model.pendingComics of
+                        Just pendingComics ->
+                            Just pendingComics.characterId
+
+                        Nothing ->
+                            Nothing
+
+                characters : Maybe (List { id : Int, name : String })
                 characters =
                     case result of
                         Ok characterList ->
@@ -185,6 +194,7 @@ update msg model =
                         _ ->
                             Nothing
 
+                buildConnection : { id : Int, name : String } -> Maybe ( Int, Connection )
                 buildConnection character =
                     case parentCharacter of
                         Just id ->
@@ -197,7 +207,7 @@ update msg model =
                                     ( character.id
                                     , { character = character.name
                                       , comic = parentComic
-                                      , parentId = Just id
+                                      , parentId = id
                                       }
                                     )
 
@@ -212,17 +222,35 @@ update msg model =
                         |> Dict.fromList
 
                 updatedConnections =
-                    case model.workingConnections1 of
-                        Just connections1 ->
-                            Just (Dict.union connections1 connections)
+                    case model.workingConnections of
+                        Asked workingConnections ->
+                            updatedComics
+                                |> Maybe.unwrap False Dict.isEmpty
+                                |> updateConnections workingConnections connections
+                                |> Asked
 
-                        Nothing ->
-                            Just connections
+                        _ ->
+                            model.workingConnections
 
                 _ =
-                    Debug.log (Debug.toString (Maybe.map Dict.size updatedConnections)) 3
+                    Debug.log
+                        (Debug.toString
+                            (case updatedConnections of
+                                Asked c ->
+                                    Maybe.map Dict.size (List.getAt 0 c)
+
+                                _ ->
+                                    Nothing
+                            )
+                        )
+                        3
             in
-            ( { model | workingConnections1 = updatedConnections }, Nothing )
+            ( { model
+                | workingConnections = updatedConnections
+                , pendingComics = updatedPendingComics
+              }
+            , Nothing
+            )
 
         UserRequestsFurtherConnections ->
             ( model, Just LoadComicCharacters )
@@ -233,7 +261,7 @@ allOrNothing details =
     case ( pluckId details, pluckComics details ) of
         ( Just id, Just comics ) ->
             Just
-                { comics = comics
+                { comics = fromList comics
                 , characterId = id
                 }
 
@@ -270,6 +298,24 @@ pluckComics details =
         |> Just
 
 
+updateConnections : List (Dict Int Connection) -> Dict Int Connection -> Bool -> List (Dict Int Connection)
+updateConnections modelConnections newConnections isLastComic =
+    let
+        currentDegree =
+            modelConnections
+                |> List.getAt 0
+                |> Maybe.withDefault Dict.empty
+
+        updatedDegree =
+            Dict.union currentDegree newConnections
+    in
+    if isLastComic then
+        [ Dict.empty, updatedDegree ]
+
+    else
+        [ updatedDegree ]
+
+
 perform : ( Model, Maybe Effect ) -> ( Model, Cmd Msg )
 perform ( model, effects ) =
     ( model
@@ -287,9 +333,10 @@ runEffect model effect =
                 |> Graphql.Http.send (RemoteData.fromResult >> GotCharactersComicsDetails)
 
         LoadComicCharacters ->
-            case model.workingComics of
-                Just workingComics ->
-                    workingComics.comics
+            case model.pendingComics of
+                Just pendingComics ->
+                    pendingComics.comics
+                        |> Dict.values
                         |> List.map comicQuery
                         |> Cmd.batch
 
@@ -405,8 +452,8 @@ view model =
     div []
         [ characterInput model.endCharacter
         , characterSubmitButton model.endCharacter
-        , comicLookupButton model.workingComics
-        , viewConnection model.connection
+        , comicLookupButton model.pendingComics
+        , viewConnection model.workingConnections
         , div [] [ text "Data provided by Marvel. © 2014 Marvel" ]
         ]
         |> Html.toUnstyled
@@ -422,9 +469,23 @@ writeConnection connection =
             conn.character ++ " is in " ++ conn.comic.name ++ " with " ++ writeConnection conns
 
 
-viewConnection : Maybe (List Connection) -> Html Msg
-viewConnection connection =
-    div [] [ text (Maybe.unwrap "No connection" writeConnection connection) ]
+viewConnection : WorkingConnections -> Html Msg
+viewConnection working =
+    case working of
+        FoundConnection connection ->
+            div [] [ text (writeConnection connection) ]
+
+        NoConnection ->
+            div [] [ text "No connection" ]
+
+        Error problem ->
+            div [] [ text problem ]
+
+        Asked _ ->
+            div [] [ text "Connections pending" ]
+
+        NotAsked ->
+            div [] []
 
 
 characterInput : String -> Html Msg
@@ -444,7 +505,7 @@ characterSubmitButton name =
 
 
 comicLookupButton : Maybe PendingComics -> Html Msg
-comicLookupButton workingComics =
+comicLookupButton pendingComics =
     button
         [ onClick UserRequestsFurtherConnections ]
         [ text "look at the squirrel's friends" ]
@@ -462,6 +523,65 @@ main =
         , update = \msg model -> perform (update msg model)
         , subscriptions = always Sub.none
         }
+
+
+
+-- Comic stuff
+
+
+type alias Comic =
+    { name : String
+    , resource : String
+    }
+
+
+type alias Resource =
+    String
+
+
+fromList : List Comic -> Dict Int Comic
+fromList comics =
+    comics
+        |> comicTuples
+        |> Dict.fromList
+
+
+{-| "<http://gateway.marvel.com/v1/public/comics/58636">
+"<http:"> "" "gateway.marvel.com" "v1" "public" "comics" "58636"
+-}
+comicId : Resource -> Maybe Int
+comicId resource =
+    let
+        words =
+            String.split "/" resource
+
+        comicsIndex =
+            List.elemIndex "comics" words
+    in
+    case comicsIndex of
+        Just index ->
+            words
+                |> List.getAt (index + 1)
+                |> Maybe.map String.toInt
+                |> Maybe.join
+
+        Nothing ->
+            Nothing
+
+
+comicTuples : List Comic -> List ( Int, Comic )
+comicTuples comics =
+    comics
+        |> List.map (\comic -> ( comicId comic.resource, comic ))
+        |> List.filterMap
+            (\tuple ->
+                case Tuple.first tuple of
+                    Just id ->
+                        Just ( id, Tuple.second tuple )
+
+                    Nothing ->
+                        Nothing
+            )
 
 
 
