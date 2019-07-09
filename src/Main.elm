@@ -55,6 +55,7 @@ type alias Model =
     { workingConnections : WorkingConnections
     , pendingComics : Maybe PendingComics
     , endCharacter : String
+    , comicsCache : ComicsCache
     }
 
 
@@ -68,7 +69,7 @@ type WorkingConnections
 
 type alias PendingComics =
     { characterId : Scalar.Id
-    , comics : Dict Int Comic
+    , comics : ComicsCache
     }
 
 
@@ -104,6 +105,7 @@ init =
     ( { endCharacter = endCharacter
       , workingConnections = NotAsked
       , pendingComics = Nothing -- comics I am currently working off of
+      , comicsCache = Dict.empty
       }
     , Nothing
     )
@@ -118,7 +120,6 @@ type Msg
     | UserRequestsConnection
     | GotCharactersComicsDetails (RemoteData (Graphql.Http.Error (Maybe (List SummaryComicsForCharacter))) (Maybe (List SummaryComicsForCharacter)))
     | GotComicCharacters Comic (Result Http.Error (List ComicsForCharacter))
-    | UserRequestsFurtherConnections
 
 
 type Effect
@@ -133,37 +134,53 @@ update msg model =
             ( { model | endCharacter = name }, Nothing )
 
         UserRequestsConnection ->
-            ( { model | workingConnections = Asked [ Dict.empty ] }, Just LoadCharacterInfo )
+            let
+                ( workingConnections, effect ) =
+                    if model.endCharacter == "Squirrel Girl" then
+                        ( FoundConnection [], Nothing )
+
+                    else
+                        ( Asked [ Dict.empty ], Just LoadCharacterInfo )
+            in
+            ( { model | workingConnections = workingConnections }, effect )
 
         GotCharactersComicsDetails maybeDetails ->
             let
                 pendingComics =
                     case maybeDetails of
                         RemoteData.Success details ->
-                            allOrNothing details
+                            details
+                                |> allOrNothing
+                                |> onlyUncached model.comicsCache
 
                         _ ->
                             Nothing
 
-                -- effect =
-                --     case pendingComics of
-                --         Just working -> either we found the end character or we keep looking
-                --         Nothing -> Nothing
-                -- also consider the case that the end character is our character and we don't have to do anything
+                effect =
+                    case pendingComics of
+                        Just pending ->
+                            Just LoadComicCharacters
+
+                        Nothing ->
+                            Nothing
             in
-            ( { model | pendingComics = pendingComics }, Nothing )
+            ( { model | pendingComics = pendingComics }, effect )
 
         GotComicCharacters parentComic result ->
             -- time to build up a connection and add it to WorkingConnections
             let
-                -- needed to update pendingComics
-                updatedComics =
-                    case comicId parentComic.resource of
+                -- needed to update pendingComics & comics cache
+                ( updatedComics, updatedComicsCache ) =
+                    case comicId parentComic of
                         Just parentComicId ->
-                            Maybe.map (.comics >> Dict.remove parentComicId) model.pendingComics
+                            ( Maybe.map (.comics >> Dict.remove parentComicId) model.pendingComics
+                            , Dict.insert parentComicId parentComic model.comicsCache
+                            )
 
                         Nothing ->
-                            Nothing
+                            ( Nothing
+                            , model.comicsCache
+                            )
 
                 updatedPendingComics =
                     case updatedComics of
@@ -244,16 +261,30 @@ update msg model =
                             )
                         )
                         3
+
+                _ =
+                    Debug.log (Debug.toString "updated pending") (Maybe.unwrap -1 (\c -> Dict.size c.comics) updatedPendingComics)
+
+                _ =
+                    Debug.log (Debug.toString "updated cache") (Dict.size updatedComicsCache)
             in
             ( { model
                 | workingConnections = updatedConnections
                 , pendingComics = updatedPendingComics
+                , comicsCache = updatedComicsCache
               }
             , Nothing
             )
 
-        UserRequestsFurtherConnections ->
-            ( model, Just LoadComicCharacters )
+
+onlyUncached : ComicsCache -> Maybe PendingComics -> Maybe PendingComics
+onlyUncached cache pendingComics =
+    case pendingComics of
+        Just pc ->
+            Just { pc | comics = Dict.diff pc.comics cache }
+
+        Nothing ->
+            Nothing
 
 
 allOrNothing : Maybe (List SummaryComicsForCharacter) -> Maybe PendingComics
@@ -452,7 +483,6 @@ view model =
     div []
         [ characterInput model.endCharacter
         , characterSubmitButton model.endCharacter
-        , comicLookupButton model.pendingComics
         , viewConnection model.workingConnections
         , div [] [ text "Data provided by Marvel. © 2014 Marvel" ]
         ]
@@ -504,13 +534,6 @@ characterSubmitButton name =
         [ text "connect the spider-man to squirrel girl" ]
 
 
-comicLookupButton : Maybe PendingComics -> Html Msg
-comicLookupButton pendingComics =
-    button
-        [ onClick UserRequestsFurtherConnections ]
-        [ text "look at the squirrel's friends" ]
-
-
 
 --- Program
 
@@ -535,11 +558,15 @@ type alias Comic =
     }
 
 
+type alias ComicsCache =
+    Dict Int Comic
+
+
 type alias Resource =
     String
 
 
-fromList : List Comic -> Dict Int Comic
+fromList : List Comic -> ComicsCache
 fromList comics =
     comics
         |> comicTuples
@@ -549,11 +576,11 @@ fromList comics =
 {-| "<http://gateway.marvel.com/v1/public/comics/58636">
 "<http:"> "" "gateway.marvel.com" "v1" "public" "comics" "58636"
 -}
-comicId : Resource -> Maybe Int
-comicId resource =
+comicId : Comic -> Maybe Int
+comicId comic =
     let
         words =
-            String.split "/" resource
+            String.split "/" comic.resource
 
         comicsIndex =
             List.elemIndex "comics" words
@@ -572,7 +599,7 @@ comicId resource =
 comicTuples : List Comic -> List ( Int, Comic )
 comicTuples comics =
     comics
-        |> List.map (\comic -> ( comicId comic.resource, comic ))
+        |> List.map (\comic -> ( comicId comic, comic ))
         |> List.filterMap
             (\tuple ->
                 case Tuple.first tuple of
