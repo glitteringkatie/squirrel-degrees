@@ -55,7 +55,7 @@ type alias Model =
     { workingConnections : WorkingConnections
     , pendingComics : Maybe PendingComics
     , endCharacter : String
-    , comicCache : ComicCache
+    , comicsCache : ComicsCache
     }
 
 
@@ -69,7 +69,7 @@ type WorkingConnections
 
 type alias PendingComics =
     { characterId : Scalar.Id
-    , comics : ComicCache
+    , comics : ComicsCache
     }
 
 
@@ -105,7 +105,7 @@ init =
     ( { endCharacter = endCharacter
       , workingConnections = NotAsked
       , pendingComics = Nothing -- comics I am currently working off of
-      , comicCache = Dict.empty
+      , comicsCache = Dict.empty
       }
     , Nothing
     )
@@ -151,7 +151,7 @@ update msg model =
                         RemoteData.Success details ->
                             details
                                 |> allOrNothing
-                                |> onlyUncached model.comicCache
+                                |> onlyUncached model.comicsCache
 
                         _ ->
                             Nothing
@@ -169,14 +169,18 @@ update msg model =
         GotComicCharacters parentComic result ->
             -- time to build up a connection and add it to WorkingConnections
             let
-                -- needed to update pendingComics
-                updatedComics =
-                    case comicId parentComic.resource of
+                -- needed to update pendingComics & comics cache
+                ( updatedComics, updatedComicsCache ) =
+                    case comicId parentComic of
                         Just parentComicId ->
-                            Maybe.map (.comics >> Dict.remove parentComicId) model.pendingComics
+                            ( Maybe.map (.comics >> Dict.remove parentComicId) model.pendingComics
+                            , Dict.insert parentComicId parentComic model.comicsCache
+                            )
 
                         Nothing ->
-                            Nothing
+                            ( Nothing
+                            , model.comicsCache
+                            )
 
                 updatedPendingComics =
                     case updatedComics of
@@ -257,16 +261,23 @@ update msg model =
                             )
                         )
                         3
+
+                _ =
+                    Debug.log (Debug.toString "updated pending") (Maybe.unwrap -1 (\c -> Dict.size c.comics) updatedPendingComics)
+
+                _ =
+                    Debug.log (Debug.toString "updated cache") (Dict.size updatedComicsCache)
             in
             ( { model
                 | workingConnections = updatedConnections
                 , pendingComics = updatedPendingComics
+                , comicsCache = updatedComicsCache
               }
             , Nothing
             )
 
 
-onlyUncached : ComicCache -> Maybe PendingComics -> Maybe PendingComics
+onlyUncached : ComicsCache -> Maybe PendingComics -> Maybe PendingComics
 onlyUncached cache pendingComics =
     case pendingComics of
         Just pc ->
@@ -547,7 +558,7 @@ type alias Comic =
     }
 
 
-type alias ComicCache =
+type alias ComicsCache =
     Dict Int Comic
 
 
@@ -555,7 +566,7 @@ type alias Resource =
     String
 
 
-fromList : List Comic -> ComicCache
+fromList : List Comic -> ComicsCache
 fromList comics =
     comics
         |> comicTuples
@@ -565,11 +576,11 @@ fromList comics =
 {-| "<http://gateway.marvel.com/v1/public/comics/58636">
 "<http:"> "" "gateway.marvel.com" "v1" "public" "comics" "58636"
 -}
-comicId : Resource -> Maybe Int
-comicId resource =
+comicId : Comic -> Maybe Int
+comicId comic =
     let
         words =
-            String.split "/" resource
+            String.split "/" comic.resource
 
         comicsIndex =
             List.elemIndex "comics" words
@@ -588,7 +599,7 @@ comicId resource =
 comicTuples : List Comic -> List ( Int, Comic )
 comicTuples comics =
     comics
-        |> List.map (\comic -> ( comicId comic.resource, comic ))
+        |> List.map (\comic -> ( comicId comic, comic ))
         |> List.filterMap
             (\tuple ->
                 case Tuple.first tuple of
