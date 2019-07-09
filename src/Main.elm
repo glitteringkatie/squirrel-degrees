@@ -53,37 +53,8 @@ import RemoteData exposing (RemoteData)
 
 type alias Model =
     { workingConnections : WorkingConnections
-
-    -- , workingConnections1 : Maybe (Dict Int Connection)
-    -- , workingConnections2 : Maybe (Dict Int Connection)
-    -- , workingConnections3 : Maybe (Dict Int Connection)
-    -- , workingConnections4 : Maybe (Dict Int Connection)
-    -- , workingConnections5 : Maybe (Dict Int Connection)
-    -- , workingConnections6 : Maybe (Dict Int Connection)
     , pendingComics : Maybe PendingComics
-
-    -- , workingGraph : List ( Comic, Character ) -- where the comic connects the character to their neighbor
     , endCharacter : String
-    }
-
-
-type alias Character =
-    { name : String
-    , id : Int
-    , resource : String
-    }
-
-
-type alias Connection =
-    { character : String
-    , comic : Comic
-    , parentId : Scalar.Id
-    }
-
-
-type alias PendingComics =
-    { characterId : Scalar.Id
-    , comics : Dict Int Comic
     }
 
 
@@ -95,6 +66,35 @@ type WorkingConnections
     | Error String
 
 
+type alias PendingComics =
+    { characterId : Scalar.Id
+    , comics : Dict Int Comic
+    }
+
+
+type alias Character =
+    { name : String
+    , id : Int
+    , resource : String
+    }
+
+
+{-| connection =
+Just
+[
+{ character = endCharacter
+, comic = { name = "BFFs", resource = "https://www.bffs.com" }
+, parentId = Nothing
+}
+]
+-}
+type alias Connection =
+    { character : String
+    , comic : Comic
+    , parentId : Scalar.Id
+    }
+
+
 init : ( Model, Maybe Effect )
 init =
     let
@@ -102,26 +102,7 @@ init =
             "Spider-Man"
     in
     ( { endCharacter = endCharacter
-
-      --   , connection =
-      --         Just
-      --             [ { character = endCharacter
-      --               , comic =
-      --                     { name = "BFFs"
-      --                     , resource = "https://www.bffs.com"
-      --                     }
-      --               , parentId = Nothing
-      --               }
-      --             ]
       , workingConnections = NotAsked
-
-      --   , workingConnections1 = Nothing
-      --   , workingConnections2 = Nothing
-      --   , workingConnections3 = Nothing
-      --   , workingConnections4 = Nothing
-      --   , workingConnections5 = Nothing
-      --   , workingConnections6 = Nothing
-      --   , workingGraph = [] -- an alternative to workingConnectionsN
       , pendingComics = Nothing -- comics I am currently working off of
       }
     , Nothing
@@ -152,7 +133,7 @@ update msg model =
             ( { model | endCharacter = name }, Nothing )
 
         UserRequestsConnection ->
-            ( model, Just LoadCharacterInfo )
+            ( { model | workingConnections = Asked [ Dict.empty ] }, Just LoadCharacterInfo )
 
         GotCharactersComicsDetails maybeDetails ->
             let
@@ -248,20 +229,9 @@ update msg model =
                                 |> updateConnections workingConnections connections
                                 |> Asked
 
-                        NotAsked ->
-                            updatedComics
-                                |> Maybe.unwrap False Dict.isEmpty
-                                |> updateConnections [ Dict.empty ] connections
-                                |> Asked
-
                         _ ->
                             model.workingConnections
 
-                -- case model.workingConnections [ 0 ] of
-                --     Just connections1 ->
-                --         Just (Dict.union connections1 connections)
-                --     Nothing ->
-                --         Just connections
                 _ =
                     Debug.log
                         (Debug.toString
@@ -576,11 +546,9 @@ fromList comics =
         |> Dict.fromList
 
 
-
-{- "http://gateway.marvel.com/v1/public/comics/58636" -}
-{- "http:" "" "gateway.marvel.com" "v1" "public" "comics" "58636" -}
-
-
+{-| "<http://gateway.marvel.com/v1/public/comics/58636">
+"<http:"> "" "gateway.marvel.com" "v1" "public" "comics" "58636"
+-}
 comicId : Resource -> Maybe Int
 comicId resource =
     let
