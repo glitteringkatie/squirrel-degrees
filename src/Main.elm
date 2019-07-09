@@ -55,6 +55,7 @@ type alias Model =
     { workingConnections : WorkingConnections
     , pendingComics : Maybe PendingComics
     , endCharacter : String
+    , comicCache : ComicCache
     }
 
 
@@ -68,7 +69,7 @@ type WorkingConnections
 
 type alias PendingComics =
     { characterId : Scalar.Id
-    , comics : Dict Int Comic
+    , comics : ComicCache
     }
 
 
@@ -104,6 +105,7 @@ init =
     ( { endCharacter = endCharacter
       , workingConnections = NotAsked
       , pendingComics = Nothing -- comics I am currently working off of
+      , comicCache = Dict.empty
       }
     , Nothing
     )
@@ -118,7 +120,6 @@ type Msg
     | UserRequestsConnection
     | GotCharactersComicsDetails (RemoteData (Graphql.Http.Error (Maybe (List SummaryComicsForCharacter))) (Maybe (List SummaryComicsForCharacter)))
     | GotComicCharacters Comic (Result Http.Error (List ComicsForCharacter))
-    | UserRequestsFurtherConnections
 
 
 type Effect
@@ -133,25 +134,37 @@ update msg model =
             ( { model | endCharacter = name }, Nothing )
 
         UserRequestsConnection ->
-            ( { model | workingConnections = Asked [ Dict.empty ] }, Just LoadCharacterInfo )
+            let
+                ( workingConnections, effect ) =
+                    if model.endCharacter == "Squirrel Girl" then
+                        ( FoundConnection [], Nothing )
+
+                    else
+                        ( Asked [ Dict.empty ], Just LoadCharacterInfo )
+            in
+            ( { model | workingConnections = workingConnections }, effect )
 
         GotCharactersComicsDetails maybeDetails ->
             let
                 pendingComics =
                     case maybeDetails of
                         RemoteData.Success details ->
-                            allOrNothing details
+                            details
+                                |> allOrNothing
+                                |> onlyUncached model.comicCache
 
                         _ ->
                             Nothing
 
-                -- effect =
-                --     case pendingComics of
-                --         Just working -> either we found the end character or we keep looking
-                --         Nothing -> Nothing
-                -- also consider the case that the end character is our character and we don't have to do anything
+                effect =
+                    case pendingComics of
+                        Just pending ->
+                            Just LoadComicCharacters
+
+                        Nothing ->
+                            Nothing
             in
-            ( { model | pendingComics = pendingComics }, Nothing )
+            ( { model | pendingComics = pendingComics }, effect )
 
         GotComicCharacters parentComic result ->
             -- time to build up a connection and add it to WorkingConnections
@@ -252,8 +265,15 @@ update msg model =
             , Nothing
             )
 
-        UserRequestsFurtherConnections ->
-            ( model, Just LoadComicCharacters )
+
+onlyUncached : ComicCache -> Maybe PendingComics -> Maybe PendingComics
+onlyUncached cache pendingComics =
+    case pendingComics of
+        Just pc ->
+            Just { pc | comics = Dict.diff pc.comics cache }
+
+        Nothing ->
+            Nothing
 
 
 allOrNothing : Maybe (List SummaryComicsForCharacter) -> Maybe PendingComics
@@ -452,7 +472,6 @@ view model =
     div []
         [ characterInput model.endCharacter
         , characterSubmitButton model.endCharacter
-        , comicLookupButton model.pendingComics
         , viewConnection model.workingConnections
         , div [] [ text "Data provided by Marvel. © 2014 Marvel" ]
         ]
@@ -504,13 +523,6 @@ characterSubmitButton name =
         [ text "connect the spider-man to squirrel girl" ]
 
 
-comicLookupButton : Maybe PendingComics -> Html Msg
-comicLookupButton pendingComics =
-    button
-        [ onClick UserRequestsFurtherConnections ]
-        [ text "look at the squirrel's friends" ]
-
-
 
 --- Program
 
@@ -535,11 +547,15 @@ type alias Comic =
     }
 
 
+type alias ComicCache =
+    Dict Int Comic
+
+
 type alias Resource =
     String
 
 
-fromList : List Comic -> Dict Int Comic
+fromList : List Comic -> ComicCache
 fromList comics =
     comics
         |> comicTuples
