@@ -241,15 +241,39 @@ update msg model =
                         |> Dict.fromList
 
                 updatedConnections =
-                    case model.workingConnections1 of
-                        Just connections1 ->
-                            Just (Dict.union connections1 connections)
+                    case model.workingConnections of
+                        Asked workingConnections ->
+                            updatedComics
+                                |> Maybe.unwrap False Dict.isEmpty
+                                |> updateConnections workingConnections connections
+                                |> Asked
 
-                        Nothing ->
-                            Just connections
+                        NotAsked ->
+                            updatedComics
+                                |> Maybe.unwrap False Dict.isEmpty
+                                |> updateConnections [ Dict.empty ] connections
+                                |> Asked
 
+                        _ ->
+                            model.workingConnections
+
+                -- case model.workingConnections [ 0 ] of
+                --     Just connections1 ->
+                --         Just (Dict.union connections1 connections)
+                --     Nothing ->
+                --         Just connections
                 _ =
-                    Debug.log (Debug.toString (Maybe.map Dict.size updatedConnections)) 3
+                    Debug.log
+                        (Debug.toString
+                            (case updatedConnections of
+                                Asked c ->
+                                    Maybe.map Dict.size (List.getAt 0 c)
+
+                                _ ->
+                                    Nothing
+                            )
+                        )
+                        3
             in
             ( { model
                 | workingConnections = updatedConnections
@@ -302,6 +326,24 @@ pluckComics details =
         |> List.map (Maybe.withDefault [])
         |> List.concat
         |> Just
+
+
+updateConnections : List (Dict Int Connection) -> Dict Int Connection -> Bool -> List (Dict Int Connection)
+updateConnections modelConnections newConnections isLastComic =
+    let
+        currentDegree =
+            modelConnections
+                |> List.getAt 0
+                |> Maybe.withDefault Dict.empty
+
+        updatedDegree =
+            Dict.union currentDegree newConnections
+    in
+    if isLastComic then
+        [ Dict.empty, updatedDegree ]
+
+    else
+        [ updatedDegree ]
 
 
 perform : ( Model, Maybe Effect ) -> ( Model, Cmd Msg )
