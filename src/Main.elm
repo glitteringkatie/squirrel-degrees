@@ -34,6 +34,7 @@ import Html.Styled.Events exposing (onClick, onInput)
 import Http
 import Json.Decode as Json
 import Json.Decode.Pipeline exposing (hardcoded, optional, required)
+import List.Extra as List
 import Marvelql.InputObject exposing (buildCharacterWhereInput, buildComicWhereInput)
 import Marvelql.Object exposing (Character(..), Comic(..))
 import Marvelql.Object.Character as CharacterApi
@@ -51,22 +52,18 @@ import RemoteData exposing (RemoteData)
 
 
 type alias Model =
-    { connection : Maybe (List Connection)
-    , workingConnections1 : Maybe (Dict Int Connection)
-    , workingConnections2 : Maybe (Dict Int Connection)
-    , workingConnections3 : Maybe (Dict Int Connection)
-    , workingConnections4 : Maybe (Dict Int Connection)
-    , workingConnections5 : Maybe (Dict Int Connection)
-    , workingConnections6 : Maybe (Dict Int Connection)
+    { workingConnections : WorkingConnections
+
+    -- , workingConnections1 : Maybe (Dict Int Connection)
+    -- , workingConnections2 : Maybe (Dict Int Connection)
+    -- , workingConnections3 : Maybe (Dict Int Connection)
+    -- , workingConnections4 : Maybe (Dict Int Connection)
+    -- , workingConnections5 : Maybe (Dict Int Connection)
+    -- , workingConnections6 : Maybe (Dict Int Connection)
     , workingComics : Maybe PendingComics
-    , workingGraph : List ( Comic, Character ) -- where the comic connects the character to their neighbor
+
+    -- , workingGraph : List ( Comic, Character ) -- where the comic connects the character to their neighbor
     , endCharacter : String
-    }
-
-
-type alias Comic =
-    { name : String
-    , resource : String
     }
 
 
@@ -86,8 +83,16 @@ type alias Connection =
 
 type alias PendingComics =
     { characterId : Scalar.Id
-    , comics : List Comic
+    , comics : Dict Int Comic
     }
+
+
+type WorkingConnections
+    = NotAsked
+    | Asked (List (Dict Int Connection))
+    | FoundConnection (List Connection)
+    | NoConnection
+    | Error String
 
 
 init : ( Model, Maybe Effect )
@@ -97,23 +102,26 @@ init =
             "Spider-Man"
     in
     ( { endCharacter = endCharacter
-      , connection =
-            Just
-                [ { character = endCharacter
-                  , comic =
-                        { name = "BFFs"
-                        , resource = "https://www.bffs.com"
-                        }
-                  , parentId = Nothing
-                  }
-                ]
-      , workingConnections1 = Nothing
-      , workingConnections2 = Nothing
-      , workingConnections3 = Nothing
-      , workingConnections4 = Nothing
-      , workingConnections5 = Nothing
-      , workingConnections6 = Nothing
-      , workingGraph = [] -- an alternative to workingConnectionsN
+
+      --   , connection =
+      --         Just
+      --             [ { character = endCharacter
+      --               , comic =
+      --                     { name = "BFFs"
+      --                     , resource = "https://www.bffs.com"
+      --                     }
+      --               , parentId = Nothing
+      --               }
+      --             ]
+      , workingConnections = NotAsked
+
+      --   , workingConnections1 = Nothing
+      --   , workingConnections2 = Nothing
+      --   , workingConnections3 = Nothing
+      --   , workingConnections4 = Nothing
+      --   , workingConnections5 = Nothing
+      --   , workingConnections6 = Nothing
+      --   , workingGraph = [] -- an alternative to workingConnectionsN
       , workingComics = Nothing -- comics I am currently working off of
       }
     , Nothing
@@ -233,7 +241,7 @@ allOrNothing details =
     case ( pluckId details, pluckComics details ) of
         ( Just id, Just comics ) ->
             Just
-                { comics = comics
+                { comics = fromList comics
                 , characterId = id
                 }
 
@@ -406,7 +414,7 @@ view model =
         [ characterInput model.endCharacter
         , characterSubmitButton model.endCharacter
         , comicLookupButton model.workingComics
-        , viewConnection model.connection
+        , viewConnection model.workingConnections
         , div [] [ text "Data provided by Marvel. © 2014 Marvel" ]
         ]
         |> Html.toUnstyled
@@ -422,9 +430,23 @@ writeConnection connection =
             conn.character ++ " is in " ++ conn.comic.name ++ " with " ++ writeConnection conns
 
 
-viewConnection : Maybe (List Connection) -> Html Msg
-viewConnection connection =
-    div [] [ text (Maybe.unwrap "No connection" writeConnection connection) ]
+viewConnection : WorkingConnections -> Html Msg
+viewConnection working =
+    case working of
+        FoundConnection connection ->
+            div [] [ text (writeConnection connection) ]
+
+        NoConnection ->
+            div [] [ text "No connection" ]
+
+        Error problem ->
+            div [] [ text problem ]
+
+        Asked _ ->
+            div [] [ text "Connections pending" ]
+
+        NotAsked ->
+            div [] []
 
 
 characterInput : String -> Html Msg
@@ -462,6 +484,67 @@ main =
         , update = \msg model -> perform (update msg model)
         , subscriptions = always Sub.none
         }
+
+
+
+-- Comic stuff
+
+
+type alias Comic =
+    { name : String
+    , resource : String
+    }
+
+
+type alias Resource =
+    String
+
+
+fromList : List Comic -> Dict Int Comic
+fromList comics =
+    comics
+        |> comicTuples
+        |> Dict.fromList
+
+
+
+{- "http://gateway.marvel.com/v1/public/comics/58636" -}
+{- "http:" "" "gateway.marvel.com" "v1" "public" "comics" "58636" -}
+
+
+comicId : Resource -> Maybe Int
+comicId resource =
+    let
+        words =
+            String.split "/" resource
+
+        comicsIndex =
+            List.elemIndex "comics" words
+    in
+    case comicsIndex of
+        Just index ->
+            words
+                |> List.getAt (index + 1)
+                |> Maybe.map String.toInt
+                |> Maybe.join
+
+        Nothing ->
+            Nothing
+
+
+comicTuples : List Comic -> List ( Int, Comic )
+comicTuples comics =
+    comics
+        |> List.map (\comic -> ( comicId comic.resource, comic ))
+        |> List.filterMap
+            (\tuple ->
+                case Tuple.first tuple of
+                    Just id ->
+                        Just ( id, Tuple.second tuple )
+
+                    Nothing ->
+                        Nothing
+            )
 
 
 
