@@ -77,7 +77,7 @@ type alias Character =
 type alias Connection =
     { character : String
     , comic : Comic
-    , parentId : Maybe Scalar.Id
+    , parentId : Scalar.Id
     }
 
 
@@ -175,6 +175,25 @@ update msg model =
         GotComicCharacters parentComic result ->
             -- time to build up a connection and add it to WorkingConnections
             let
+                -- needed to update pendingComics
+                updatedComics =
+                    case comicId parentComic.resource of
+                        Just parentComicId ->
+                            Maybe.map (.comics >> Dict.remove parentComicId) model.pendingComics
+
+                        Nothing ->
+                            Nothing
+
+                updatedPendingComics =
+                    case updatedComics of
+                        Just updated ->
+                            Maybe.map (\pendingComics -> { pendingComics | comics = updated }) model.pendingComics
+
+                        Nothing ->
+                            model.pendingComics
+
+                -- needed to update workingConnections
+                parentCharacter : Maybe Scalar.Id
                 parentCharacter =
                     case model.pendingComics of
                         Just pendingComics ->
@@ -183,9 +202,7 @@ update msg model =
                         Nothing ->
                             Nothing
 
-                parentComicId =
-                    comicId parentComic.resource
-
+                characters : Maybe (List { id : Int, name : String })
                 characters =
                     case result of
                         Ok characterList ->
@@ -196,6 +213,7 @@ update msg model =
                         _ ->
                             Nothing
 
+                buildConnection : { id : Int, name : String } -> Maybe ( Int, Connection )
                 buildConnection character =
                     case parentCharacter of
                         Just id ->
@@ -208,7 +226,7 @@ update msg model =
                                     ( character.id
                                     , { character = character.name
                                       , comic = parentComic
-                                      , parentId = Just id
+                                      , parentId = id
                                       }
                                     )
 
@@ -233,7 +251,12 @@ update msg model =
                 _ =
                     Debug.log (Debug.toString (Maybe.map Dict.size updatedConnections)) 3
             in
-            ( { model | workingConnections1 = updatedConnections }, Nothing )
+            ( { model
+                | workingConnections = updatedConnections
+                , pendingComics = updatedPendingComics
+              }
+            , Nothing
+            )
 
         UserRequestsFurtherConnections ->
             ( model, Just LoadComicCharacters )
