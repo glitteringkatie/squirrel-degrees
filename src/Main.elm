@@ -60,7 +60,7 @@ type alias Model =
     -- , workingConnections4 : Maybe (Dict Int Connection)
     -- , workingConnections5 : Maybe (Dict Int Connection)
     -- , workingConnections6 : Maybe (Dict Int Connection)
-    , workingComics : Maybe PendingComics
+    , pendingComics : Maybe PendingComics
 
     -- , workingGraph : List ( Comic, Character ) -- where the comic connects the character to their neighbor
     , endCharacter : String
@@ -122,7 +122,7 @@ init =
       --   , workingConnections5 = Nothing
       --   , workingConnections6 = Nothing
       --   , workingGraph = [] -- an alternative to workingConnectionsN
-      , workingComics = Nothing -- comics I am currently working off of
+      , pendingComics = Nothing -- comics I am currently working off of
       }
     , Nothing
     )
@@ -156,7 +156,7 @@ update msg model =
 
         GotCharactersComicsDetails maybeDetails ->
             let
-                workingComics =
+                pendingComics =
                     case maybeDetails of
                         RemoteData.Success details ->
                             allOrNothing details
@@ -165,23 +165,26 @@ update msg model =
                             Nothing
 
                 -- effect =
-                --     case workingComics of
+                --     case pendingComics of
                 --         Just working -> either we found the end character or we keep looking
                 --         Nothing -> Nothing
                 -- also consider the case that the end character is our character and we don't have to do anything
             in
-            ( { model | workingComics = workingComics }, Nothing )
+            ( { model | pendingComics = pendingComics }, Nothing )
 
         GotComicCharacters parentComic result ->
-            -- time to build up a connection and add it to WorkingConnections1
+            -- time to build up a connection and add it to WorkingConnections
             let
                 parentCharacter =
-                    case model.workingComics of
-                        Just workingComics ->
-                            Just workingComics.characterId
+                    case model.pendingComics of
+                        Just pendingComics ->
+                            Just pendingComics.characterId
 
                         Nothing ->
                             Nothing
+
+                parentComicId =
+                    comicId parentComic.resource
 
                 characters =
                     case result of
@@ -295,9 +298,10 @@ runEffect model effect =
                 |> Graphql.Http.send (RemoteData.fromResult >> GotCharactersComicsDetails)
 
         LoadComicCharacters ->
-            case model.workingComics of
-                Just workingComics ->
-                    workingComics.comics
+            case model.pendingComics of
+                Just pendingComics ->
+                    pendingComics.comics
+                        |> Dict.values
                         |> List.map comicQuery
                         |> Cmd.batch
 
@@ -413,7 +417,7 @@ view model =
     div []
         [ characterInput model.endCharacter
         , characterSubmitButton model.endCharacter
-        , comicLookupButton model.workingComics
+        , comicLookupButton model.pendingComics
         , viewConnection model.workingConnections
         , div [] [ text "Data provided by Marvel. © 2014 Marvel" ]
         ]
@@ -466,7 +470,7 @@ characterSubmitButton name =
 
 
 comicLookupButton : Maybe PendingComics -> Html Msg
-comicLookupButton workingComics =
+comicLookupButton pendingComics =
     button
         [ onClick UserRequestsFurtherConnections ]
         [ text "look at the squirrel's friends" ]
