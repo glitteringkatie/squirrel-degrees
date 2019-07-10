@@ -53,7 +53,7 @@ import RemoteData exposing (RemoteData)
 
 type alias Model =
     { workingConnections : WorkingConnections
-    , pendingComics : Maybe PendingComics
+    , pendingComics : PendingComics
     , endCharacter : String
     , comicsCache : ComicsCache
     }
@@ -68,9 +68,7 @@ type WorkingConnections
 
 
 type alias PendingComics =
-    { characterId : Scalar.Id
-    , comics : ComicsCache
-    }
+    Dict Int ComicsCache
 
 
 type alias Character =
@@ -92,7 +90,7 @@ Just
 type alias Connection =
     { character : String
     , comic : Comic
-    , parentId : Scalar.Id
+    , parentId : Int
     }
 
 
@@ -104,7 +102,7 @@ init =
     in
     ( { endCharacter = endCharacter
       , workingConnections = NotAsked
-      , pendingComics = Nothing -- comics I am currently working off of
+      , pendingComics = Dict.empty -- comics I am currently working off of
       , comicsCache = Dict.empty
       }
     , Nothing
@@ -119,12 +117,12 @@ type Msg
     = UserUpdatedEndCharacter String
     | UserRequestsConnection
     | GotCharactersComicsDetails (RemoteData (Graphql.Http.Error (Maybe (List SummaryComicsForCharacter))) (Maybe (List SummaryComicsForCharacter)))
-    | GotComicCharacters Comic (Result Http.Error (List ComicsForCharacter))
+    | GotComicCharacters Int Comic (Result Http.Error (List ComicsForCharacter))
 
 
 type Effect
     = LoadCharacterInfo
-    | LoadComicCharacters
+    | LoadComicCharacters Int
 
 
 update : Msg -> Model -> ( Model, Maybe Effect )
@@ -146,34 +144,47 @@ update msg model =
 
         GotCharactersComicsDetails maybeDetails ->
             let
-                pendingComics =
+                parentCharacterId =
                     case maybeDetails of
                         RemoteData.Success details ->
                             details
-                                |> allOrNothing
-                                |> onlyUncached model.comicsCache
+                                |> pluckId
+                                |> Maybe.map fromScalarToInt
+                                |> Maybe.join
 
                         _ ->
                             Nothing
 
-                effect =
-                    case pendingComics of
-                        Just pending ->
-                            Just LoadComicCharacters
+                ( pendingComics, effect ) =
+                    case ( maybeDetails, parentCharacterId ) of
+                        ( RemoteData.Success details, Just id ) ->
+                            ( Dict.singleton id
+                                (details
+                                    |> allOrNothing
+                                    |> onlyUncached model.comicsCache
+                                )
+                            , Just (LoadComicCharacters id)
+                            )
 
-                        Nothing ->
-                            Nothing
+                        ( _, _ ) ->
+                            ( model.pendingComics, Nothing )
             in
             ( { model | pendingComics = pendingComics }, effect )
 
-        GotComicCharacters parentComic result ->
+        GotComicCharacters parentCharacterId parentComic result ->
             -- time to build up a connection and add it to WorkingConnections
             let
                 -- needed to update pendingComics & comics cache
                 ( updatedComics, updatedComicsCache ) =
                     case comicId parentComic of
                         Just parentComicId ->
-                            ( Maybe.map (.comics >> Dict.remove parentComicId) model.pendingComics
+                            let
+                                uc =
+                                    model.pendingComics
+                                        |> Dict.get parentCharacterId
+                                        |> Maybe.map (Dict.remove parentComicId)
+                            in
+                            ( uc
                             , Dict.insert parentComicId parentComic model.comicsCache
                             )
 
@@ -185,21 +196,19 @@ update msg model =
                 updatedPendingComics =
                     case updatedComics of
                         Just updated ->
-                            Maybe.map (\pendingComics -> { pendingComics | comics = updated }) model.pendingComics
+                            Dict.insert parentCharacterId updated model.pendingComics
 
                         Nothing ->
                             model.pendingComics
 
                 -- needed to update workingConnections
-                parentCharacter : Maybe Scalar.Id
-                parentCharacter =
-                    case model.pendingComics of
-                        Just pendingComics ->
-                            Just pendingComics.characterId
-
-                        Nothing ->
-                            Nothing
-
+                -- parentCharacter : Maybe Scalar.Id
+                -- parentCharacter =
+                --     case model.pendingComics of
+                --         Just pendingComics ->
+                --             Just pendingComics.characterId
+                --         Nothing ->
+                --             Nothing
                 characters : Maybe (List { id : Int, name : String })
                 characters =
                     case result of
@@ -213,23 +222,18 @@ update msg model =
 
                 buildConnection : { id : Int, name : String } -> Maybe ( Int, Connection )
                 buildConnection character =
-                    case parentCharacter of
-                        Just id ->
-                            if isEqualScalarInt id character.id then
-                                Nothing
-                                -- Don't add the parent character!
+                    if parentCharacterId == character.id then
+                        Nothing
+                        -- Don't add the parent character!
 
-                            else
-                                Just
-                                    ( character.id
-                                    , { character = character.name
-                                      , comic = parentComic
-                                      , parentId = id
-                                      }
-                                    )
-
-                        _ ->
-                            Nothing
+                    else
+                        Just
+                            ( character.id
+                            , { character = character.name
+                              , comic = parentComic
+                              , parentId = parentCharacterId
+                              }
+                            )
 
                 connections =
                     characters
@@ -263,7 +267,7 @@ update msg model =
                         3
 
                 _ =
-                    Debug.log (Debug.toString "updated pending") (Maybe.unwrap -1 (\c -> Dict.size c.comics) updatedPendingComics)
+                    Debug.log (Debug.toString "updated pending") (Maybe.unwrap -1 Dict.size (Dict.get parentCharacterId updatedPendingComics))
 
                 _ =
                     Debug.log (Debug.toString "updated cache") (Dict.size updatedComicsCache)
@@ -277,27 +281,21 @@ update msg model =
             )
 
 
-onlyUncached : ComicsCache -> Maybe PendingComics -> Maybe PendingComics
+onlyUncached : ComicsCache -> ComicsCache -> ComicsCache
 onlyUncached cache pendingComics =
-    case pendingComics of
-        Just pc ->
-            Just { pc | comics = Dict.diff pc.comics cache }
+    Dict.diff pendingComics cache
+
+
+{-| only used for the first call since this only handles 1 parent character id
+-}
+allOrNothing : Maybe (List SummaryComicsForCharacter) -> ComicsCache
+allOrNothing details =
+    case pluckComics details of
+        Just comics ->
+            fromList comics
 
         Nothing ->
-            Nothing
-
-
-allOrNothing : Maybe (List SummaryComicsForCharacter) -> Maybe PendingComics
-allOrNothing details =
-    case ( pluckId details, pluckComics details ) of
-        ( Just id, Just comics ) ->
-            Just
-                { comics = fromList comics
-                , characterId = id
-                }
-
-        ( _, _ ) ->
-            Nothing
+            Dict.empty
 
 
 pluckId : Maybe (List SummaryComicsForCharacter) -> Maybe Scalar.Id
@@ -363,16 +361,17 @@ runEffect model effect =
                 |> Graphql.Http.queryRequest "https://api.marvelql.com/"
                 |> Graphql.Http.send (RemoteData.fromResult >> GotCharactersComicsDetails)
 
-        LoadComicCharacters ->
-            case model.pendingComics of
-                Just pendingComics ->
-                    pendingComics.comics
-                        |> Dict.values
-                        |> List.map comicQuery
-                        |> Cmd.batch
+        LoadComicCharacters parentCharacterId ->
+            if Dict.isEmpty model.pendingComics then
+                Cmd.none
+                -- keeping this Cmd.none is _super_ helpful in performance, figure out why later
 
-                Nothing ->
-                    Cmd.none
+            else
+                model.pendingComics
+                    |> Dict.get parentCharacterId
+                    |> Maybe.unwrap [] Dict.values
+                    |> List.map (comicQuery parentCharacterId)
+                    |> Cmd.batch
 
 
 
@@ -425,11 +424,11 @@ startQuery =
         )
 
 
-comicQuery : Comic -> Cmd Msg
-comicQuery comic =
+comicQuery : Int -> Comic -> Cmd Msg
+comicQuery characterId comic =
     Http.get
         { url = comic.resource ++ "/characters?ts=1&apikey=***REMOVED***&hash=***REMOVED***"
-        , expect = Http.expectJson (GotComicCharacters comic) comicCharactersDecoder
+        , expect = Http.expectJson (GotComicCharacters characterId comic) comicCharactersDecoder
         }
 
 
@@ -623,3 +622,8 @@ isEqualScalarInt (Scalar.Id scalar) id =
 
         Nothing ->
             False
+
+
+fromScalarToInt : Scalar.Id -> Maybe Int
+fromScalarToInt (Scalar.Id scalar) =
+    String.toInt scalar
