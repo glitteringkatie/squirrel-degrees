@@ -179,11 +179,37 @@ update msg model =
                 { pendingComics, workingConnections, comicsCache } =
                     shiftQueue parentCharacterId parentComic result model
 
-                _ =
-                    Debug.log (Debug.toString "updated pending") (Maybe.unwrap -1 Dict.size (Dict.get parentCharacterId pendingComics))
+                pendingLength =
+                    pendingComics
+                        |> Dict.values
+                        |> List.map Dict.values
+                        |> List.map List.length
+                        |> List.sum
 
-                _ =
-                    Debug.log (Debug.toString "updated cache") (Dict.size comicsCache)
+                effect =
+                    case workingConnections of
+                        Asked a ->
+                            let
+                                _ =
+                                    Debug.log "List degree is " (List.length a)
+                            in
+                            if List.length a < 7 then
+                                let
+                                    _ =
+                                        Debug.log (Debug.toString (List.head (Dict.keys pendingComics))) 3
+                                in
+                                case List.head (Dict.keys pendingComics) of
+                                    Just id ->
+                                        Just (LoadComicCharacters id)
+
+                                    Nothing ->
+                                        Nothing
+
+                            else
+                                Nothing
+
+                        _ ->
+                            Nothing
             in
             ( { model
                 | workingConnections = workingConnections
@@ -211,18 +237,21 @@ shiftQueue parentCharacterId parentComic result model =
 
                 Nothing ->
                     Nothing
+
+        updatedWorkingConnections =
+            updateWorkingConnections
+                parentCharacterId
+                parentComic
+                result
+                updatedPendingQueue
+                model.workingConnections
     in
-    { workingConnections =
-        updateWorkingConnections
-            parentCharacterId
-            parentComic
-            result
-            updatedPendingQueue
-            model.workingConnections
+    { workingConnections = updatedWorkingConnections
     , pendingComics =
         updatePendingComics
             parentCharacterId
             updatedPendingQueue
+            updatedWorkingConnections
             model.pendingComics
     , comicsCache =
         updateComicsCache
@@ -241,14 +270,45 @@ updateComicsCache parentComic currentCache =
             currentCache
 
 
-updatePendingComics : Int -> Maybe (Dict Int Comic) -> PendingComics -> PendingComics
-updatePendingComics parentCharacterId pendingQueue currentPending =
-    case pendingQueue of
-        Just pending ->
-            Dict.insert parentCharacterId pending currentPending
+updatePendingComics : Int -> Maybe (Dict Int Comic) -> WorkingConnections -> PendingComics -> PendingComics
+updatePendingComics parentCharacterId pendingQueue currentConnections currentPending =
+    let
+        pending =
+            pendingQueue
+                |> Maybe.unwrap currentPending (\p -> Dict.insert parentCharacterId p currentPending)
+                |> Dict.filter (\k v -> v |> Dict.isEmpty |> not)
+    in
+    if Dict.isEmpty pending then
+        let
+            anotherOne =
+                currentConnections
+                    |> askedWithDefault
+                    |> List.getAt 1
+                    |> Maybe.withDefault Dict.empty
+                    -- now Dict Int Connection
+                    |> Dict.map (\k v -> Dict.singleton (Maybe.withDefault 0 (comicId v.comic)) v.comic)
+                    |> Dict.filter (\k v -> k /= 0)
 
-        Nothing ->
-            currentPending
+            _ =
+                Debug.log ("Current connections are " ++ Debug.toString anotherOne) 3
+        in
+        currentConnections
+            |> askedWithDefault
+            |> List.getAt 1
+            |> Maybe.withDefault Dict.empty
+            -- now Dict Int Connection
+            |> Dict.map (\k v -> Dict.singleton (Maybe.withDefault 0 (comicId v.comic)) v.comic)
+            |> Dict.filter (\k v -> k /= 0)
+        -- Filtered out anything that didn't successfully translate to a comicId
+
+    else
+        pending
+
+
+
+-- in
+-- if All dicts in the dict that is pending are empty, then return a new dict made up of stuff from updatedconnections
+-- if Dict.all
 
 
 updateWorkingConnections :
@@ -269,8 +329,9 @@ updateWorkingConnections parentCharacterId parentComic result updatedPendingQueu
             else
                 Just
                     ( character.id
-                    , { character = character.name
-                      , comic = parentComic
+                      -- TODO this assumes a character can only be connected by a single comic
+                    , { character = character.name -- probably include character id in here
+                      , comic = parentComic -- then also add the parent comic's id to character.id to make a hash
                       , parentId = parentCharacterId
                       }
                     )
@@ -292,6 +353,10 @@ updateWorkingConnections parentCharacterId parentComic result updatedPendingQueu
     in
     case currentConnections of
         Asked current ->
+            let
+                _ =
+                    Debug.log ("Will start next degree: " ++ Debug.toString (Maybe.unwrap False Dict.isEmpty updatedPendingQueue)) 3
+            in
             updatedPendingQueue
                 |> Maybe.unwrap False Dict.isEmpty
                 |> updateConnections current connections
@@ -628,6 +693,20 @@ comicTuples comics =
                     Nothing ->
                         Nothing
             )
+
+
+
+--- WorkingConnections
+
+
+askedWithDefault : WorkingConnections -> List (Dict Int Connection)
+askedWithDefault connection =
+    case connection of
+        Asked a ->
+            a
+
+        _ ->
+            []
 
 
 
