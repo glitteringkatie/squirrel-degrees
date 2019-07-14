@@ -156,7 +156,7 @@ update msg model =
                         _ ->
                             Nothing
 
-                ( pendingComics, effect ) =
+                ( pendingComics, workingConnections, effect ) =
                     case ( maybeDetails, parentCharacterId ) of
                         ( RemoteData.Success details, Just id ) ->
                             let
@@ -168,13 +168,28 @@ update msg model =
                                         )
                             in
                             ( pending
+                            , model.workingConnections
                             , Just (LoadComicCharacters pending)
                             )
 
+                        ( RemoteData.Failure _, _ ) ->
+                            ( model.pendingComics
+                            , Error "Something went wrong initially!"
+                            , Nothing
+                            )
+
                         ( _, _ ) ->
-                            ( model.pendingComics, Nothing )
+                            ( model.pendingComics
+                            , model.workingConnections
+                            , Nothing
+                            )
             in
-            ( { model | pendingComics = pendingComics }, effect )
+            ( { model
+                | pendingComics = pendingComics
+                , workingConnections = workingConnections
+              }
+            , effect
+            )
 
         GotComicCharacters parentCharacterId parentComic result ->
             -- time to build up a connection and add it to WorkingConnections
@@ -350,8 +365,8 @@ updateWorkingConnections parentCharacterId parentComic result updatedPendingComi
                 |> Maybe.values
                 |> Dict.fromList
     in
-    case currentConnections of
-        Asked current ->
+    case ( currentConnections, result ) of
+        ( Asked current, Ok _ ) ->
             -- let
             --     _ =
             --         Debug.log ("Will start next degree: " ++ Debug.toString (Maybe.unwrap False Dict.isEmpty updatedPendingComics)) 3
@@ -363,7 +378,10 @@ updateWorkingConnections parentCharacterId parentComic result updatedPendingComi
                 |> updateConnections current connections
                 |> Asked
 
-        _ ->
+        ( _, Err _ ) ->
+            Error "Something went wrong!"
+
+        ( _, _ ) ->
             currentConnections
 
 
