@@ -123,7 +123,7 @@ type Msg
 
 type Effect
     = LoadCharacterInfo
-    | LoadComicCharacters Int
+    | LoadComicCharacters PendingComics
 
 
 update : Msg -> Model -> ( Model, Maybe Effect )
@@ -159,12 +159,16 @@ update msg model =
                 ( pendingComics, effect ) =
                     case ( maybeDetails, parentCharacterId ) of
                         ( RemoteData.Success details, Just id ) ->
-                            ( Dict.singleton id
-                                (details
-                                    |> allOrNothing
-                                    |> onlyUncached model.comicsCache
-                                )
-                            , Just (LoadComicCharacters id)
+                            let
+                                pending =
+                                    Dict.singleton id
+                                        (details
+                                            |> allOrNothing
+                                            |> onlyUncached model.comicsCache
+                                        )
+                            in
+                            ( pending
+                            , Just (LoadComicCharacters pending)
                             )
 
                         ( _, _ ) ->
@@ -192,18 +196,16 @@ update msg model =
                             let
                                 _ =
                                     Debug.log "List degree is " (List.length a)
+
+                                isNewDegree =
+                                    Maybe.unwrap False Dict.isEmpty (List.head a)
                             in
-                            if List.length a < 7 then
+                            if List.length a < 7 && isNewDegree then
                                 let
                                     _ =
                                         Debug.log (Debug.toString (List.head (Dict.keys pendingComics))) 3
                                 in
-                                case List.head (Dict.keys pendingComics) of
-                                    Just id ->
-                                        Just (LoadComicCharacters id)
-
-                                    Nothing ->
-                                        Nothing
+                                Just (LoadComicCharacters pendingComics)
 
                             else
                                 Nothing
@@ -216,7 +218,7 @@ update msg model =
                 , pendingComics = pendingComics
                 , comicsCache = comicsCache
               }
-            , Nothing
+            , effect
             )
 
 
@@ -238,21 +240,24 @@ shiftQueue parentCharacterId parentComic result model =
                 Nothing ->
                     Nothing
 
+        preliminaryUpdatedPending =
+            updatedPendingQueue
+                |> Maybe.unwrap model.pendingComics (\p -> Dict.insert parentCharacterId p model.pendingComics)
+                |> Dict.filter (\k v -> v |> Dict.isEmpty |> not)
+
         updatedWorkingConnections =
             updateWorkingConnections
                 parentCharacterId
                 parentComic
                 result
-                updatedPendingQueue
+                preliminaryUpdatedPending
                 model.workingConnections
     in
     { workingConnections = updatedWorkingConnections
     , pendingComics =
         updatePendingComics
-            parentCharacterId
-            updatedPendingQueue
+            preliminaryUpdatedPending
             updatedWorkingConnections
-            model.pendingComics
     , comicsCache =
         updateComicsCache
             parentComic
@@ -270,28 +275,21 @@ updateComicsCache parentComic currentCache =
             currentCache
 
 
-updatePendingComics : Int -> Maybe (Dict Int Comic) -> WorkingConnections -> PendingComics -> PendingComics
-updatePendingComics parentCharacterId pendingQueue currentConnections currentPending =
-    let
-        pending =
-            pendingQueue
-                |> Maybe.unwrap currentPending (\p -> Dict.insert parentCharacterId p currentPending)
-                |> Dict.filter (\k v -> v |> Dict.isEmpty |> not)
-    in
+updatePendingComics : PendingComics -> WorkingConnections -> PendingComics
+updatePendingComics pending currentConnections =
     if Dict.isEmpty pending then
-        let
-            anotherOne =
-                currentConnections
-                    |> askedWithDefault
-                    |> List.getAt 1
-                    |> Maybe.withDefault Dict.empty
-                    -- now Dict Int Connection
-                    |> Dict.map (\k v -> Dict.singleton (Maybe.withDefault 0 (comicId v.comic)) v.comic)
-                    |> Dict.filter (\k v -> k /= 0)
-
-            _ =
-                Debug.log ("Current connections are " ++ Debug.toString anotherOne) 3
-        in
+        -- let
+        -- anotherOne =
+        --     currentConnections
+        --         |> askedWithDefault
+        --         |> List.getAt 1
+        --         |> Maybe.withDefault Dict.empty
+        --         -- now Dict Int Connection
+        --         |> Dict.map (\k v -> Dict.singleton (Maybe.withDefault 0 (comicId v.comic)) v.comic)
+        --         |> Dict.filter (\k v -> k /= 0)
+        -- _ =
+        --     Debug.log ("Current connections are " ++ Debug.toString anotherOne) 3
+        -- in
         currentConnections
             |> askedWithDefault
             |> List.getAt 1
@@ -306,6 +304,7 @@ updatePendingComics parentCharacterId pendingQueue currentConnections currentPen
 
 
 
+-- bool is if it will be the next degree
 -- in
 -- if All dicts in the dict that is pending are empty, then return a new dict made up of stuff from updatedconnections
 -- if Dict.all
@@ -315,10 +314,10 @@ updateWorkingConnections :
     Int
     -> Comic
     -> Result Http.Error (List ComicsForCharacter)
-    -> Maybe (Dict Int Comic)
+    -> PendingComics
     -> WorkingConnections
     -> WorkingConnections
-updateWorkingConnections parentCharacterId parentComic result updatedPendingQueue currentConnections =
+updateWorkingConnections parentCharacterId parentComic result updatedPendingComics currentConnections =
     let
         buildConnection : { id : Int, name : String } -> Maybe ( Int, Connection )
         buildConnection character =
@@ -353,12 +352,14 @@ updateWorkingConnections parentCharacterId parentComic result updatedPendingQueu
     in
     case currentConnections of
         Asked current ->
-            let
-                _ =
-                    Debug.log ("Will start next degree: " ++ Debug.toString (Maybe.unwrap False Dict.isEmpty updatedPendingQueue)) 3
-            in
-            updatedPendingQueue
-                |> Maybe.unwrap False Dict.isEmpty
+            -- let
+            --     _ =
+            --         Debug.log ("Will start next degree: " ++ Debug.toString (Maybe.unwrap False Dict.isEmpty updatedPendingComics)) 3
+            -- in
+            updatedPendingComics
+                |> Dict.values
+                |> List.map Dict.isEmpty
+                |> List.all (\v -> v == True)
                 |> updateConnections current connections
                 |> Asked
 
@@ -422,12 +423,15 @@ updateConnections currentConnections newConnections isLastComic =
 
         updatedDegree =
             Dict.union currentDegree newConnections
+
+        untouchedConnections =
+            Maybe.withDefault [] (List.tail currentConnections)
     in
     if isLastComic then
-        [ Dict.empty, updatedDegree ]
+        List.concat [ [ Dict.empty, updatedDegree ], untouchedConnections ]
 
     else
-        [ updatedDegree ]
+        List.concat [ [ updatedDegree ], untouchedConnections ]
 
 
 perform : ( Model, Maybe Effect ) -> ( Model, Cmd Msg )
@@ -446,20 +450,33 @@ runEffect model effect =
                 |> Graphql.Http.queryRequest "https://api.marvelql.com/"
                 |> Graphql.Http.send (RemoteData.fromResult >> GotCharactersComicsDetails)
 
-        LoadComicCharacters parentCharacterId ->
-            if Dict.isEmpty model.pendingComics then
+        LoadComicCharacters pendingComics ->
+            if Dict.isEmpty pendingComics then
+                let
+                    _ =
+                        Debug.log ("Not loading comic characters for: " ++ Debug.toString pendingComics)
+                in
                 Cmd.none
                 -- keeping this Cmd.none is _super_ helpful in performance, figure out why later
 
             else
-                model.pendingComics
-                    |> Dict.get parentCharacterId
-                    |> Maybe.unwrap [] Dict.values
-                    |> List.map (comicQuery parentCharacterId)
+                let
+                    _ =
+                        Debug.log ("Loading comic characters for " ++ Debug.toString (Dict.keys pendingComics))
+                in
+                pendingComics
+                    |> Dict.toList
+                    |> List.concatMap (\( parent, cache ) -> List.map (Tuple.pair parent) (Dict.values cache))
+                    |> List.map comicQuery
                     |> Cmd.batch
 
 
 
+-- parent ID, comic
+-- |> Dict.get parentCharacterIds
+-- |> Maybe.unwrap [] Dict.values
+-- |> List.map (comicQuery parentCharacterIds)
+-- |> Cmd.batch
 --- API
 
 
@@ -509,8 +526,8 @@ startQuery =
         )
 
 
-comicQuery : Int -> Comic -> Cmd Msg
-comicQuery characterId comic =
+comicQuery : ( Int, Comic ) -> Cmd Msg
+comicQuery ( characterId, comic ) =
     Http.get
         { url = comic.resource ++ "/characters?ts=1&apikey=***REMOVED***&hash=***REMOVED***"
         , expect = Http.expectJson (GotComicCharacters characterId comic) comicCharactersDecoder
