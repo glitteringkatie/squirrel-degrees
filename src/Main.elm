@@ -293,18 +293,6 @@ updateComicsCache parentComic currentCache =
 updatePendingComics : PendingComics -> WorkingConnections -> PendingComics
 updatePendingComics pending currentConnections =
     if Dict.isEmpty pending then
-        -- let
-        -- anotherOne =
-        --     currentConnections
-        --         |> askedWithDefault
-        --         |> List.getAt 1
-        --         |> Maybe.withDefault Dict.empty
-        --         -- now Dict Int Connection
-        --         |> Dict.map (\k v -> Dict.singleton (Maybe.withDefault 0 (comicId v.comic)) v.comic)
-        --         |> Dict.filter (\k v -> k /= 0)
-        -- _ =
-        --     Debug.log ("Current connections are " ++ Debug.toString anotherOne) 3
-        -- in
         currentConnections
             |> askedWithDefault
             |> List.getAt 1
@@ -316,13 +304,6 @@ updatePendingComics pending currentConnections =
 
     else
         pending
-
-
-
--- bool is if it will be the next degree
--- in
--- if All dicts in the dict that is pending are empty, then return a new dict made up of stuff from updatedconnections
--- if Dict.all
 
 
 updateWorkingConnections :
@@ -367,10 +348,6 @@ updateWorkingConnections parentCharacterId parentComic result updatedPendingComi
     in
     case ( currentConnections, result ) of
         ( Asked current, Ok _ ) ->
-            -- let
-            --     _ =
-            --         Debug.log ("Will start next degree: " ++ Debug.toString (Maybe.unwrap False Dict.isEmpty updatedPendingComics)) 3
-            -- in
             updatedPendingComics
                 |> Dict.values
                 |> List.map Dict.isEmpty
@@ -490,11 +467,6 @@ runEffect model effect =
 
 
 
--- parent ID, comic
--- |> Dict.get parentCharacterIds
--- |> Maybe.unwrap [] Dict.values
--- |> List.map (comicQuery parentCharacterIds)
--- |> Cmd.batch
 --- API
 
 
