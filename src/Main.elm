@@ -307,9 +307,62 @@ updatePendingComics pending currentConnections =
         pending
 
 
+buildAnswer : List (Dict Int Connection) -> Int -> Int -> List Connection -> List Connection
+buildAnswer connections startIndex id acc =
+    case List.getAt startIndex connections of
+        Just dict ->
+            case Dict.get id dict of
+                Just connection ->
+                    buildAnswer
+                        connections
+                        (startIndex + 1)
+                        connection.parentId
+                        (connection :: acc)
+
+                Nothing ->
+                    acc
+
+        Nothing ->
+            acc
+
+
+buildWorkingConnection : List (Dict Int Connection) -> Int -> Maybe Int -> WorkingConnections
+buildWorkingConnection connections startIndex maybeId =
+    case maybeId of
+        Just id ->
+            let
+                answer =
+                    buildAnswer connections startIndex id []
+
+                _ =
+                    Debug.log (Debug.toString answer) 3
+            in
+            FoundConnection answer
+
+        Nothing ->
+            Asked connections
+
+
 checkForConnection : String -> List (Dict Int Connection) -> WorkingConnections
 checkForConnection name connections =
-    Asked connections
+    let
+        focusedIndex =
+            if Maybe.unwrap True Dict.isEmpty (List.getAt 0 connections) && List.length connections > 1 then
+                1
+
+            else
+                0
+    in
+    case List.getAt focusedIndex connections of
+        Just focused ->
+            focused
+                |> Dict.filter (\k v -> v.character == name)
+                |> Dict.keys
+                |> List.head
+                |> buildWorkingConnection connections focusedIndex
+
+        Nothing ->
+            Asked connections
 
 
 updateWorkingConnections :
