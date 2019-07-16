@@ -266,6 +266,7 @@ shiftQueue parentCharacterId parentComic result model =
                 parentComic
                 result
                 preliminaryUpdatedPending
+                model.endCharacter
                 model.workingConnections
     in
     { workingConnections = updatedWorkingConnections
@@ -306,14 +307,20 @@ updatePendingComics pending currentConnections =
         pending
 
 
+checkForConnection : String -> List (Dict Int Connection) -> WorkingConnections
+checkForConnection name connections =
+    Asked connections
+
+
 updateWorkingConnections :
     Int
     -> Comic
     -> Result Http.Error (List ComicsForCharacter)
     -> PendingComics
+    -> String
     -> WorkingConnections
     -> WorkingConnections
-updateWorkingConnections parentCharacterId parentComic result updatedPendingComics currentConnections =
+updateWorkingConnections parentCharacterId parentComic result updatedPendingComics name currentConnections =
     let
         buildConnection : { id : Int, name : String } -> Maybe ( Int, Connection )
         buildConnection character =
@@ -353,7 +360,7 @@ updateWorkingConnections parentCharacterId parentComic result updatedPendingComi
                 |> List.map Dict.isEmpty
                 |> List.all (\v -> v == True)
                 |> updateConnections current connections
-                |> Asked
+                |> checkForConnection name
 
         ( _, Err _ ) ->
             Error "Something went wrong!"
