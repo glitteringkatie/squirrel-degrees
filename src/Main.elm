@@ -22,7 +22,9 @@ import Accessibility.Styled as Html
         , labelHidden
         , text
         )
+import BeautifulExample
 import Browser
+import Color
 import Dict exposing (Dict)
 import Graphql.Http
 import Graphql.Http.GraphqlError exposing (GraphqlError)
@@ -680,7 +682,14 @@ characterSubmitButton name =
 
 main : Program () Model Msg
 main =
-    Browser.element
+    BeautifulExample.element
+        { title = "6 Degrees of Squirrel Girl"
+        , details = Nothing
+        , color = Just Color.charcoal
+        , maxWidth = 820
+        , githubUrl = Just "https://github.com/glitteringkatie/squirrel-degrees"
+        , documentationUrl = Nothing
+        }
         { view = view
         , init = \flags -> perform init
         , update = \msg model -> perform (update msg model)
