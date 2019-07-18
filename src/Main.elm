@@ -97,11 +97,7 @@ type alias Connection =
 
 init : ( Model, Maybe Effect )
 init =
-    let
-        endCharacter =
-            "Spider-Man"
-    in
-    ( { endCharacter = endCharacter
+    ( { endCharacter = ""
       , workingConnections = NotAsked
       , pendingComics = Dict.empty -- comics I am currently working off of
       , comicsCache = Dict.empty
@@ -675,7 +671,7 @@ characterSubmitButton : String -> Html Msg
 characterSubmitButton name =
     button
         [ onClick UserRequestsConnection ]
-        [ text "connect the spider-man to squirrel girl" ]
+        [ text "connect to squirrel girl" ]
 
 
 
