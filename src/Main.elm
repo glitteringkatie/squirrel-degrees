@@ -266,6 +266,7 @@ shiftQueue parentCharacterId parentComic result model =
                 parentComic
                 result
                 preliminaryUpdatedPending
+                model.endCharacter
                 model.workingConnections
     in
     { workingConnections = updatedWorkingConnections
@@ -306,14 +307,66 @@ updatePendingComics pending currentConnections =
         pending
 
 
+buildAnswer : List (Dict Int Connection) -> Int -> Int -> List Connection -> List Connection
+buildAnswer connections startIndex id acc =
+    case List.getAt startIndex connections of
+        Just dict ->
+            case Dict.get id dict of
+                Just connection ->
+                    buildAnswer
+                        connections
+                        (startIndex + 1)
+                        connection.parentId
+                        (connection :: acc)
+
+                Nothing ->
+                    acc
+
+        Nothing ->
+            acc
+
+
+buildWorkingConnection : List (Dict Int Connection) -> Int -> Maybe Int -> WorkingConnections
+buildWorkingConnection connections startIndex maybeId =
+    case maybeId of
+        Just id ->
+            FoundConnection (buildAnswer connections startIndex id [])
+
+        Nothing ->
+            Asked connections
+
+
+checkForConnection : String -> List (Dict Int Connection) -> WorkingConnections
+checkForConnection name connections =
+    let
+        focusedIndex =
+            if Maybe.unwrap True Dict.isEmpty (List.getAt 0 connections) && List.length connections > 1 then
+                1
+
+            else
+                0
+    in
+    case List.getAt focusedIndex connections of
+        Just focused ->
+            focused
+                |> Dict.filter (\k v -> v.character == name)
+                |> Dict.keys
+                |> List.head
+                |> buildWorkingConnection connections focusedIndex
+
+        Nothing ->
+            Asked connections
+
+
 updateWorkingConnections :
     Int
     -> Comic
     -> Result Http.Error (List ComicsForCharacter)
     -> PendingComics
+    -> String
     -> WorkingConnections
     -> WorkingConnections
-updateWorkingConnections parentCharacterId parentComic result updatedPendingComics currentConnections =
+updateWorkingConnections parentCharacterId parentComic result updatedPendingComics name currentConnections =
     let
         buildConnection : { id : Int, name : String } -> Maybe ( Int, Connection )
         buildConnection character =
@@ -353,7 +406,7 @@ updateWorkingConnections parentCharacterId parentComic result updatedPendingComi
                 |> List.map Dict.isEmpty
                 |> List.all (\v -> v == True)
                 |> updateConnections current connections
-                |> Asked
+                |> checkForConnection name
 
         ( _, Err _ ) ->
             Error "Something went wrong!"
