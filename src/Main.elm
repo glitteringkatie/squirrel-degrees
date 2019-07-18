@@ -330,14 +330,7 @@ buildWorkingConnection : List (Dict Int Connection) -> Int -> Maybe Int -> Worki
 buildWorkingConnection connections startIndex maybeId =
     case maybeId of
         Just id ->
-            let
-                answer =
-                    buildAnswer connections startIndex id []
-
-                _ =
-                    Debug.log (Debug.toString answer) 3
-            in
-            FoundConnection answer
+            FoundConnection (buildAnswer connections startIndex id [])
 
         Nothing ->
             Asked connections
