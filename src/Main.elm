@@ -60,6 +60,7 @@ type alias Model =
     , pendingComics : PendingComics
     , endCharacter : String
     , comicsCache : ComicsCache
+    , answersCache : Dict String (List Connection)
     }
 
 
@@ -120,6 +121,7 @@ init =
       , workingConnections = NotAsked
       , pendingComics = Dict.empty -- comics I am currently working off of
       , comicsCache = Dict.empty
+      , answersCache = Dict.empty
       }
     , Nothing
     )
@@ -154,7 +156,12 @@ update msg model =
                         ( FoundConnection [], Nothing )
 
                     else
-                        ( Asked [ Dict.empty ], Just LoadCharacterInfo )
+                        case Dict.get model.endCharacter model.answersCache of
+                            Just connections ->
+                                ( FoundConnection connections, Nothing )
+
+                            Nothing ->
+                                ( Asked [ Dict.empty ], Just LoadCharacterInfo )
             in
             ( { model | workingConnections = workingConnections }, effect )
 
