@@ -186,12 +186,12 @@ update msg model =
                     case ( maybeDetails, parentCharacterId ) of
                         ( RemoteData.Success details, Just id ) ->
                             let
+                                allDetails =
+                                    allOrNothing details
+
                                 pending =
                                     Dict.singleton id
-                                        (details
-                                            |> allOrNothing
-                                            |> onlyUncached model.comicsCache
-                                        )
+                                        (onlyUncached model.comicsCache allDetails)
                             in
                             ( pending
                             , model.workingConnections
@@ -443,6 +443,25 @@ checkForConnection name connections =
             Asked connections
 
 
+buildConnection : Int -> Comic -> { id : Int, name : String, comics : List Comic } -> Maybe ( Int, WorkingConnection )
+buildConnection parentCharacterId parentComic character =
+    if parentCharacterId == character.id then
+        Nothing
+        -- Don't add the parent character!
+
+    else
+        Just
+            ( character.id
+              -- TODO this assumes a character can only be connected by a single comic
+              -- maybe this is the problem right now
+            , { character = character.name -- probably include character id in here
+              , comic = parentComic -- then also add the parent comic's id to character.id to make a hash
+              , parentId = parentCharacterId
+              , comics = character.comics
+              }
+            )
+
+
 updateWorkingConnections :
     Int
     -> Comic
@@ -452,24 +471,6 @@ updateWorkingConnections :
     -> WorkingConnections
 updateWorkingConnections parentCharacterId parentComic result isLastComic model =
     let
-        buildConnection : { id : Int, name : String, comics : List Comic } -> Maybe ( Int, WorkingConnection )
-        buildConnection character =
-            if parentCharacterId == character.id then
-                Nothing
-                -- Don't add the parent character!
-
-            else
-                Just
-                    ( character.id
-                      -- TODO this assumes a character can only be connected by a single comic
-                      -- maybe this is the problem right now
-                    , { character = character.name -- probably include character id in here
-                      , comic = parentComic -- then also add the parent comic's id to character.id to make a hash
-                      , parentId = parentCharacterId
-                      , comics = character.comics
-                      }
-                    )
-
         -- result is the list of character info including the comics they are in
         -- so characters are the list of characters connected to parentCharacterId by parentComic
         characters : List { id : Int, name : String, comics : List Comic }
@@ -483,7 +484,7 @@ updateWorkingConnections parentCharacterId parentComic result isLastComic model 
 
         connections =
             characters
-                |> List.map buildConnection
+                |> List.map buildConnection parentCharacterId parentComic
                 |> Maybe.values
                 |> Dict.fromList
     in
@@ -501,10 +502,8 @@ updateWorkingConnections parentCharacterId parentComic result isLastComic model 
 
 
 onlyUncached : ComicsCache -> ComicsCache -> ComicsCache
-onlyUncached cache pendingComics =
-    let
-        uncached =
-            Dict.diff pendingComics cache
+onlyUncached cache newComics =
+    Dict.diff newComics cache
 
         _ =
             Debug.log "uncached: " uncached
