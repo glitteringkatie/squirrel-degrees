@@ -17,6 +17,7 @@ import Accessibility.Styled as Html
         , button
         , div
         , h1
+        , h2
         , img
         , inputText
         , labelHidden
@@ -266,16 +267,19 @@ shiftQueue parentCharacterId parentComic result model =
                 preliminaryUpdatedPending
                 model.endCharacter
                 model.workingConnections
+
+        updatedComicsCache =
+            updateComicsCache
+                parentComic
+                model.comicsCache
     in
     { workingConnections = updatedWorkingConnections
     , pendingComics =
         updatePendingComics
+            updatedComicsCache
             preliminaryUpdatedPending
             updatedWorkingConnections
-    , comicsCache =
-        updateComicsCache
-            parentComic
-            model.comicsCache
+    , comicsCache = updatedComicsCache
     }
 
 
@@ -289,9 +293,9 @@ updateComicsCache parentComic currentCache =
             currentCache
 
 
-updatePendingComics : PendingComics -> WorkingConnections -> PendingComics
-updatePendingComics pending currentConnections =
-    if Dict.isEmpty pending then
+updatePendingComics : ComicsCache -> PendingComics -> WorkingConnections -> PendingComics
+updatePendingComics comicsCache pendingComics currentConnections =
+    if Dict.isEmpty pendingComics then
         currentConnections
             |> askedWithDefault
             |> List.getAt 1
@@ -299,10 +303,12 @@ updatePendingComics pending currentConnections =
             -- now Dict Int Connection
             |> Dict.map (\k v -> Dict.singleton (Maybe.withDefault 0 (comicId v.comic)) v.comic)
             |> Dict.filter (\k v -> k /= 0)
+            |> Dict.map (\k pending -> onlyUncached comicsCache pending)
+            |> Dict.filter (\k pending -> not (Dict.isEmpty pending))
         -- Filtered out anything that didn't successfully translate to a comicId
 
     else
-        pending
+        pendingComics
 
 
 buildAnswer : List (Dict Int Connection) -> Int -> Int -> List Connection -> List Connection
@@ -415,7 +421,14 @@ updateWorkingConnections parentCharacterId parentComic result updatedPendingComi
 
 onlyUncached : ComicsCache -> ComicsCache -> ComicsCache
 onlyUncached cache pendingComics =
-    Dict.diff pendingComics cache
+    let
+        uncached =
+            Dict.diff pendingComics cache
+
+        _ =
+            Debug.log "uncached: " uncached
+    in
+    uncached
 
 
 {-| only used for the first call since this only handles 1 parent character id
@@ -626,6 +639,10 @@ view model =
         [ characterInput model.endCharacter
         , characterSubmitButton model.endCharacter
         , viewConnection model.workingConnections
+        , h2 [] [ text "Cached Comics" ]
+        , viewComicsCache model.comicsCache
+        , h2 [] [ text "Pending Comics" ]
+        , viewPendingComics model.pendingComics
         , div [] [ text "Data provided by Marvel. © 2014 Marvel" ]
         ]
         |> Html.toUnstyled
@@ -658,6 +675,35 @@ viewConnection working =
 
         NotAsked ->
             div [] []
+
+
+viewPendingComics : PendingComics -> Html msg
+viewPendingComics pendingComics =
+    pendingComics
+        |> Dict.map
+            (\k cache ->
+                div []
+                    [ text ("parent character id: " ++ String.fromInt k)
+                    , viewComicsCache cache
+                    ]
+            )
+        |> Dict.values
+        |> div []
+
+
+viewComicsCache : ComicsCache -> Html msg
+viewComicsCache comicsCache =
+    comicsCache
+        |> Dict.map
+            (\k comic ->
+                div []
+                    [ text ("id: " ++ String.fromInt k)
+                    , text ("name: " ++ comic.name)
+                    , text ("resource: " ++ comic.resource)
+                    ]
+            )
+        |> Dict.values
+        |> div []
 
 
 characterInput : String -> Html Msg
