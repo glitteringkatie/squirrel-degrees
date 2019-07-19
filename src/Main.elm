@@ -60,16 +60,20 @@ type alias Model =
     , pendingComics : PendingComics
     , endCharacter : String
     , comicsCache : ComicsCache
-    , answersCache : Dict String (List Connection)
+    , answersCache : Dict String Answer
     }
 
 
 type WorkingConnections
     = NotAsked
     | Asked (List (Dict Int WorkingConnection))
-    | FoundConnection (List Connection)
+    | FoundConnection Answer
     | NoConnection
     | Error String
+
+
+type alias Answer =
+    List Connection
 
 
 type alias PendingComics =
@@ -217,7 +221,7 @@ update msg model =
             -- time to build up a connection and add it to WorkingConnections
             let
                 -- TODO figure out how to short circuit
-                { pendingComics, workingConnections, comicsCache } =
+                { pendingComics, workingConnections, comicsCache, answersCache } =
                     shiftQueue parentCharacterId parentComic result model
 
                 pendingLength =
@@ -254,6 +258,7 @@ update msg model =
                 | workingConnections = workingConnections
                 , pendingComics = pendingComics
                 , comicsCache = comicsCache
+                , answersCache = answersCache
               }
             , effect
             )
@@ -264,7 +269,12 @@ shiftQueue :
     -> Comic
     -> Result Http.Error (List ComicsForCharacter)
     -> Model
-    -> { workingConnections : WorkingConnections, pendingComics : PendingComics, comicsCache : ComicsCache }
+    ->
+        { workingConnections : WorkingConnections
+        , pendingComics : PendingComics
+        , comicsCache : ComicsCache
+        , answersCache : Dict String Answer
+        }
 shiftQueue parentCharacterId parentComic result model =
     let
         pendingWithoutCurrentComic =
@@ -292,10 +302,17 @@ shiftQueue parentCharacterId parentComic result model =
                 parentComic
                 model.comicsCache
 
+        updatedAnswersCache =
+            updateAnswersCache
+                model.endCharacter
+                updatedWorkingConnections
+                model.answersCache
+
         -- Build up pending comics (should be only uncached here)
     in
     { workingConnections = updatedWorkingConnections
     , comicsCache = updatedComicsCache
+    , answersCache = updatedAnswersCache
     , pendingComics =
         updatePendingComics
             updatedComicsCache
@@ -332,6 +349,16 @@ updateComicsCache parentComic currentCache =
             currentCache
 
 
+updateAnswersCache : String -> WorkingConnections -> Dict String Answer -> Dict String Answer
+updateAnswersCache name working answers =
+    case working of
+        FoundConnection answer ->
+            Dict.insert name answer answers
+
+        _ ->
+            answers
+
+
 updatePendingComics : ComicsCache -> PendingComics -> WorkingConnections -> PendingComics
 updatePendingComics comicsCache pendingComics currentConnections =
     if Dict.isEmpty pendingComics then
@@ -361,7 +388,7 @@ queueComics _ node =
         |> Dict.fromList
 
 
-buildAnswer : List (Dict Int WorkingConnection) -> Int -> Int -> List Connection -> List Connection
+buildAnswer : List (Dict Int WorkingConnection) -> Int -> Int -> Answer -> Answer
 buildAnswer connections startIndex id acc =
     case List.getAt startIndex connections of
         Just dict ->
@@ -702,7 +729,7 @@ view model =
         |> Html.toUnstyled
 
 
-writeConnection : List Connection -> String
+writeConnection : Answer -> String
 writeConnection connection =
     case connection of
         [] ->
