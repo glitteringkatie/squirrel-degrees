@@ -65,7 +65,7 @@ type alias Model =
 
 type WorkingConnections
     = NotAsked
-    | Asked (List (Dict Int Connection))
+    | Asked (List (Dict Int WorkingConnection))
     | FoundConnection (List Connection)
     | NoConnection
     | Error String
@@ -95,6 +95,22 @@ type alias Connection =
     { character : String
     , comic : Comic
     , parentId : Int
+    }
+
+
+type alias WorkingConnection =
+    { character : String
+    , comic : Comic
+    , parentId : Int
+    , comics : List Comic
+    }
+
+
+formalizeConnection : WorkingConnection -> Connection
+formalizeConnection working =
+    { character = working.character
+    , comic = working.comic
+    , parentId = working.parentId
     }
 
 
@@ -254,7 +270,7 @@ shiftQueue parentCharacterId parentComic result model =
                 |> List.map Dict.isEmpty
                 |> List.all (\v -> v == True)
 
-        -- update working connections with uncached nodes
+        -- update working connections with new uncached nodes
         updatedWorkingConnections =
             updateWorkingConnections
                 parentCharacterId
@@ -264,19 +280,20 @@ shiftQueue parentCharacterId parentComic result model =
                 model
 
         -- build the new cache
-        -- Build up pending comics (should be only uncached here)
         updatedComicsCache =
             updateComicsCache
                 parentComic
                 model.comicsCache
+
+        -- Build up pending comics (should be only uncached here)
     in
     { workingConnections = updatedWorkingConnections
+    , comicsCache = updatedComicsCache
     , pendingComics =
         updatePendingComics
             updatedComicsCache
             pendingWithoutCurrentComic
             updatedWorkingConnections
-    , comicsCache = updatedComicsCache
     }
 
 
@@ -326,17 +343,21 @@ updatePendingComics comicsCache pendingComics currentConnections =
         pendingComics
 
 
-buildAnswer : List (Dict Int Connection) -> Int -> Int -> List Connection -> List Connection
+buildAnswer : List (Dict Int WorkingConnection) -> Int -> Int -> List Connection -> List Connection
 buildAnswer connections startIndex id acc =
     case List.getAt startIndex connections of
         Just dict ->
             case Dict.get id dict of
                 Just connection ->
+                    let
+                        formalConnection =
+                            formalizeConnection connection
+                    in
                     buildAnswer
                         connections
                         (startIndex + 1)
-                        connection.parentId
-                        (connection :: acc)
+                        formalConnection.parentId
+                        (formalConnection :: acc)
 
                 Nothing ->
                     acc
@@ -345,7 +366,7 @@ buildAnswer connections startIndex id acc =
             acc
 
 
-buildWorkingConnection : List (Dict Int Connection) -> Int -> Maybe Int -> WorkingConnections
+buildWorkingConnection : List (Dict Int WorkingConnection) -> Int -> Maybe Int -> WorkingConnections
 buildWorkingConnection connections startIndex maybeId =
     case maybeId of
         Just id ->
@@ -355,7 +376,7 @@ buildWorkingConnection connections startIndex maybeId =
             Asked connections
 
 
-checkForConnection : String -> List (Dict Int Connection) -> WorkingConnections
+checkForConnection : String -> List (Dict Int WorkingConnection) -> WorkingConnections
 checkForConnection name connections =
     let
         focusedIndex =
@@ -386,7 +407,7 @@ updateWorkingConnections :
     -> WorkingConnections
 updateWorkingConnections parentCharacterId parentComic result isLastComic model =
     let
-        buildConnection : { id : Int, name : String } -> Maybe ( Int, Connection )
+        buildConnection : { id : Int, name : String, comics : List Comic } -> Maybe ( Int, WorkingConnection )
         buildConnection character =
             if parentCharacterId == character.id then
                 Nothing
@@ -396,18 +417,22 @@ updateWorkingConnections parentCharacterId parentComic result isLastComic model 
                 Just
                     ( character.id
                       -- TODO this assumes a character can only be connected by a single comic
+                      -- maybe this is the problem right now
                     , { character = character.name -- probably include character id in here
                       , comic = parentComic -- then also add the parent comic's id to character.id to make a hash
                       , parentId = parentCharacterId
+                      , comics = character.comics
                       }
                     )
 
-        characters : List { id : Int, name : String }
+        -- result is the list of character info including the comics they are in
+        -- so characters are the list of characters connected to parentCharacterId by parentComic
+        characters : List { id : Int, name : String, comics : List Comic }
         characters =
             Result.unwrap
                 []
                 (List.map
-                    (\character -> { name = character.name, id = character.id })
+                    (\character -> { name = character.name, id = character.id, comics = character.comics.items })
                 )
                 result
 
@@ -419,10 +444,6 @@ updateWorkingConnections parentCharacterId parentComic result isLastComic model 
     in
     case ( model.workingConnections, result ) of
         ( Asked current, Ok _ ) ->
-            -- updatedPendingComics -- needs to know to see if we're empty
-            --     |> Dict.values
-            --     |> List.map Dict.isEmpty
-            --     |> List.all (\v -> v == True)
             connections
                 |> updateConnections isLastComic current
                 |> checkForConnection model.endCharacter
@@ -487,7 +508,7 @@ pluckComics details =
         |> Just
 
 
-updateConnections : Bool -> List (Dict Int Connection) -> Dict Int Connection -> List (Dict Int Connection)
+updateConnections : Bool -> List (Dict Int WorkingConnection) -> Dict Int WorkingConnection -> List (Dict Int WorkingConnection)
 updateConnections isLastComic currentConnections newConnections =
     let
         currentDegree =
@@ -825,7 +846,7 @@ comicTuples comics =
 --- WorkingConnections
 
 
-askedWithDefault : WorkingConnections -> List (Dict Int Connection)
+askedWithDefault : WorkingConnections -> List (Dict Int WorkingConnection)
 askedWithDefault connection =
     case connection of
         Asked a ->
