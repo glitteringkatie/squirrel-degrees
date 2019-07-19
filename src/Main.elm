@@ -244,8 +244,11 @@ shiftQueue :
     -> { workingConnections : WorkingConnections, pendingComics : PendingComics, comicsCache : ComicsCache }
 shiftQueue parentCharacterId parentComic result model =
     let
+        pendingWithoutCurrentComic =
+            dequeuePendingComic parentCharacterId parentComic model.pendingComics
+
         isLastComic =
-            preliminaryUpdatedPending
+            pendingWithoutCurrentComic
                 -- needs to know to see if we're empty
                 |> Dict.values
                 |> List.map Dict.isEmpty
@@ -262,21 +265,6 @@ shiftQueue parentCharacterId parentComic result model =
 
         -- build the new cache
         -- Build up pending comics (should be only uncached here)
-        updatedPendingQueue =
-            case comicId parentComic of
-                Just id ->
-                    model.pendingComics
-                        |> Dict.get parentCharacterId
-                        |> Maybe.map (Dict.remove id)
-
-                Nothing ->
-                    Nothing
-
-        preliminaryUpdatedPending =
-            updatedPendingQueue
-                |> Maybe.unwrap model.pendingComics (\p -> Dict.insert parentCharacterId p model.pendingComics)
-                |> Dict.filter (\k v -> v |> Dict.isEmpty |> not)
-
         updatedComicsCache =
             updateComicsCache
                 parentComic
@@ -286,10 +274,28 @@ shiftQueue parentCharacterId parentComic result model =
     , pendingComics =
         updatePendingComics
             updatedComicsCache
-            preliminaryUpdatedPending
+            pendingWithoutCurrentComic
             updatedWorkingConnections
     , comicsCache = updatedComicsCache
     }
+
+
+dequeuePendingComic : Int -> Comic -> PendingComics -> PendingComics
+dequeuePendingComic parentCharacterId parentComic pendingComics =
+    let
+        updatedPendingQueue =
+            case comicId parentComic of
+                Just id ->
+                    pendingComics
+                        |> Dict.get parentCharacterId
+                        |> Maybe.map (Dict.remove id)
+
+                Nothing ->
+                    Nothing
+    in
+    updatedPendingQueue
+        |> Maybe.unwrap pendingComics (\p -> Dict.insert parentCharacterId p pendingComics)
+        |> Dict.filter (\k v -> v |> Dict.isEmpty |> not)
 
 
 updateComicsCache : Comic -> ComicsCache -> ComicsCache
