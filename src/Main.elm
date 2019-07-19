@@ -328,19 +328,30 @@ updateComicsCache parentComic currentCache =
 updatePendingComics : ComicsCache -> PendingComics -> WorkingConnections -> PendingComics
 updatePendingComics comicsCache pendingComics currentConnections =
     if Dict.isEmpty pendingComics then
+        let
+            _ =
+                Debug.log "populating pendingconnections with next batch" 3
+        in
         currentConnections
             |> askedWithDefault
             |> List.getAt 1
             |> Maybe.withDefault Dict.empty
             -- now Dict Int Connection
-            |> Dict.map (\k v -> Dict.singleton (Maybe.withDefault 0 (comicId v.comic)) v.comic)
-            |> Dict.filter (\k v -> k /= 0)
-            -- Filtered out anything that didn't successfully translate to a comicId
-            |> Dict.map (\k pending -> onlyUncached comicsCache pending)
-            |> Dict.filter (\k pending -> not (Dict.isEmpty pending))
+            |> Dict.map queueComics
+            |> Dict.map (\_ pending -> onlyUncached comicsCache pending)
+            |> Dict.filter (\_ pending -> not (Dict.isEmpty pending))
 
     else
         pendingComics
+
+
+queueComics : Int -> WorkingConnection -> Dict Int Comic
+queueComics _ node =
+    node.comics
+        |> List.map (\comic -> ( Maybe.withDefault 0 (comicId comic), comic ))
+        |> List.filter (\( k, _ ) -> k /= 0)
+        -- Filtered out anything that didn't successfully translate to a comicId
+        |> Dict.fromList
 
 
 buildAnswer : List (Dict Int WorkingConnection) -> Int -> Int -> List Connection -> List Connection
