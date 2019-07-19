@@ -59,7 +59,7 @@ type alias Model =
     { workingConnections : WorkingConnections
     , pendingComics : PendingComics
     , endCharacter : String
-    , comicsCache : ComicsCache
+    , comicsCache : WorkingCache
     , answersCache : Dict String Answer
     }
 
@@ -70,6 +70,10 @@ type WorkingConnections
     | FoundConnection Answer
     | NoConnection
     | Error String
+
+
+type alias WorkingCache =
+    Dict Int WorkingConnection
 
 
 type alias Answer =
@@ -272,7 +276,7 @@ shiftQueue :
     ->
         { workingConnections : WorkingConnections
         , pendingComics : PendingComics
-        , comicsCache : ComicsCache
+        , comicsCache : WorkingCache
         , answersCache : Dict String Answer
         }
 shiftQueue parentCharacterId parentComic result model =
@@ -339,11 +343,11 @@ dequeuePendingComic parentCharacterId parentComic pendingComics =
         |> Dict.filter (\k v -> v |> Dict.isEmpty |> not)
 
 
-updateComicsCache : Comic -> ComicsCache -> ComicsCache
-updateComicsCache parentComic currentCache =
-    case comicId parentComic of
-        Just parentComicId ->
-            Dict.insert parentComicId parentComic currentCache
+updateComicsCache : Maybe Int -> Connection -> WorkingCache -> WorkingCache
+updateComicsCache parentComicId connection currentCache =
+    case comicId parentComicId of
+        Just id ->
+            Dict.insert id connection currentCache
 
         Nothing ->
             currentCache
@@ -501,14 +505,15 @@ updateWorkingConnections parentCharacterId parentComic result isLastComic model 
             model.workingConnections
 
 
-onlyUncached : ComicsCache -> ComicsCache -> ComicsCache
+onlyUncached : WorkingCache -> ComicsCache -> ComicsCache
 onlyUncached cache newComics =
-    Dict.diff newComics cache
+    newComics
+        |> Dict.filter (\k v -> Dict.member k cache)
 
-        _ =
-            Debug.log "uncached: " uncached
-    in
-    uncached
+
+onlyCached : ComicsCache -> ComicsCache -> ComicsCache
+onlyCached cache newComics =
+    Dict.intersect newComics cache
 
 
 {-| only used for the first call since this only handles 1 parent character id
