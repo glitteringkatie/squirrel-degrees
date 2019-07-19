@@ -244,6 +244,24 @@ shiftQueue :
     -> { workingConnections : WorkingConnections, pendingComics : PendingComics, comicsCache : ComicsCache }
 shiftQueue parentCharacterId parentComic result model =
     let
+        isLastComic =
+            preliminaryUpdatedPending
+                -- needs to know to see if we're empty
+                |> Dict.values
+                |> List.map Dict.isEmpty
+                |> List.all (\v -> v == True)
+
+        -- update working connections with uncached nodes
+        updatedWorkingConnections =
+            updateWorkingConnections
+                parentCharacterId
+                parentComic
+                result
+                isLastComic
+                model
+
+        -- build the new cache
+        -- Build up pending comics (should be only uncached here)
         updatedPendingQueue =
             case comicId parentComic of
                 Just id ->
@@ -258,15 +276,6 @@ shiftQueue parentCharacterId parentComic result model =
             updatedPendingQueue
                 |> Maybe.unwrap model.pendingComics (\p -> Dict.insert parentCharacterId p model.pendingComics)
                 |> Dict.filter (\k v -> v |> Dict.isEmpty |> not)
-
-        updatedWorkingConnections =
-            updateWorkingConnections
-                parentCharacterId
-                parentComic
-                result
-                preliminaryUpdatedPending
-                model.endCharacter
-                model.workingConnections
 
         updatedComicsCache =
             updateComicsCache
@@ -303,9 +312,9 @@ updatePendingComics comicsCache pendingComics currentConnections =
             -- now Dict Int Connection
             |> Dict.map (\k v -> Dict.singleton (Maybe.withDefault 0 (comicId v.comic)) v.comic)
             |> Dict.filter (\k v -> k /= 0)
+            -- Filtered out anything that didn't successfully translate to a comicId
             |> Dict.map (\k pending -> onlyUncached comicsCache pending)
             |> Dict.filter (\k pending -> not (Dict.isEmpty pending))
-        -- Filtered out anything that didn't successfully translate to a comicId
 
     else
         pendingComics
@@ -366,11 +375,10 @@ updateWorkingConnections :
     Int
     -> Comic
     -> Result Http.Error (List ComicsForCharacter)
-    -> PendingComics
-    -> String
+    -> Bool
+    -> Model
     -> WorkingConnections
-    -> WorkingConnections
-updateWorkingConnections parentCharacterId parentComic result updatedPendingComics name currentConnections =
+updateWorkingConnections parentCharacterId parentComic result isLastComic model =
     let
         buildConnection : { id : Int, name : String } -> Maybe ( Int, Connection )
         buildConnection character =
@@ -403,20 +411,21 @@ updateWorkingConnections parentCharacterId parentComic result updatedPendingComi
                 |> Maybe.values
                 |> Dict.fromList
     in
-    case ( currentConnections, result ) of
+    case ( model.workingConnections, result ) of
         ( Asked current, Ok _ ) ->
-            updatedPendingComics
-                |> Dict.values
-                |> List.map Dict.isEmpty
-                |> List.all (\v -> v == True)
-                |> updateConnections current connections
-                |> checkForConnection name
+            -- updatedPendingComics -- needs to know to see if we're empty
+            --     |> Dict.values
+            --     |> List.map Dict.isEmpty
+            --     |> List.all (\v -> v == True)
+            connections
+                |> updateConnections isLastComic current
+                |> checkForConnection model.endCharacter
 
         ( _, Err _ ) ->
             Error "Something went wrong!"
 
         ( _, _ ) ->
-            currentConnections
+            model.workingConnections
 
 
 onlyUncached : ComicsCache -> ComicsCache -> ComicsCache
@@ -472,8 +481,8 @@ pluckComics details =
         |> Just
 
 
-updateConnections : List (Dict Int Connection) -> Dict Int Connection -> Bool -> List (Dict Int Connection)
-updateConnections currentConnections newConnections isLastComic =
+updateConnections : Bool -> List (Dict Int Connection) -> Dict Int Connection -> List (Dict Int Connection)
+updateConnections isLastComic currentConnections newConnections =
     let
         currentDegree =
             currentConnections
