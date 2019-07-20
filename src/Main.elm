@@ -59,7 +59,7 @@ type alias Model =
     { workingConnections : WorkingConnections
     , pendingComics : PendingComics
     , endCharacter : String
-    , comicsCache : WorkingCache
+    , workingCache : WorkingCache
     , answersCache : Dict String Answer
     }
 
@@ -128,7 +128,7 @@ init =
     ( { endCharacter = ""
       , workingConnections = NotAsked
       , pendingComics = Dict.empty -- comics I am currently working off of
-      , comicsCache = Dict.empty
+      , workingCache = Dict.empty
       , answersCache = Dict.empty
       }
     , Nothing
@@ -195,7 +195,10 @@ update msg model =
 
                                 pending =
                                     Dict.singleton id
-                                        (onlyUncached model.comicsCache allDetails)
+                                        (onlyUncached model.workingCache allDetails)
+
+                                _ =
+                                    Debug.log "allDetails: " allDetails
                             in
                             ( pending
                             , model.workingConnections
@@ -225,7 +228,7 @@ update msg model =
             -- time to build up a connection and add it to WorkingConnections
             let
                 -- TODO figure out how to short circuit
-                { pendingComics, workingConnections, comicsCache, answersCache } =
+                { pendingComics, workingConnections, workingCache, answersCache } =
                     shiftQueue parentCharacterId parentComic result model
 
                 pendingLength =
@@ -276,7 +279,7 @@ shiftQueue :
     ->
         { workingConnections : WorkingConnections
         , pendingComics : PendingComics
-        , comicsCache : WorkingCache
+        , workingCache : WorkingCache
         , answersCache : Dict String Answer
         }
 shiftQueue parentCharacterId parentComic result model =
@@ -304,7 +307,7 @@ shiftQueue parentCharacterId parentComic result model =
         updatedComicsCache =
             updateComicsCache
                 updatedWorkingConnections
-                model.comicsCache
+                model.workingCache
 
         updatedAnswersCache =
             updateAnswersCache
@@ -315,7 +318,7 @@ shiftQueue parentCharacterId parentComic result model =
         -- Build up pending comics (should be only uncached here)
     in
     { workingConnections = updatedWorkingConnections
-    , comicsCache = updatedComicsCache
+    , workingCache = updatedComicsCache
     , answersCache = updatedAnswersCache
     , pendingComics =
         updatePendingComics
@@ -381,7 +384,7 @@ updateAnswersCache name working answers =
 
 
 updatePendingComics : WorkingCache -> PendingComics -> WorkingConnections -> PendingComics
-updatePendingComics comicsCache pendingComics currentConnections =
+updatePendingComics workingCache pendingComics currentConnections =
     if Dict.isEmpty pendingComics then
         let
             _ =
@@ -393,7 +396,7 @@ updatePendingComics comicsCache pendingComics currentConnections =
             |> Maybe.withDefault Dict.empty
             -- now Dict Int Connection
             |> Dict.map queueComics
-            |> Dict.map (\_ pending -> onlyUncached comicsCache pending)
+            |> Dict.map (\_ pending -> onlyUncached workingCache pending)
             |> Dict.filter (\_ pending -> not (Dict.isEmpty pending))
 
     else
@@ -741,7 +744,7 @@ view model =
         , characterSubmitButton model.endCharacter
         , viewConnection model.workingConnections
         , h2 [] [ text "Cached Comics" ]
-        , viewWorkingCache model.comicsCache
+        , viewWorkingCache model.workingCache
         , h2 [] [ text "Pending Comics" ]
         , viewPendingComics model.pendingComics
         , div [] [ text "Data provided by Marvel. © 2014 Marvel" ]
@@ -808,8 +811,8 @@ viewComicsCache comicsCache =
 
 
 viewWorkingCache : WorkingCache -> Html msg
-viewWorkingCache comicsCache =
-    comicsCache
+viewWorkingCache workingCache =
+    workingCache
         |> Dict.map
             (\k comic ->
                 div []
