@@ -303,7 +303,7 @@ shiftQueue parentCharacterId parentComic result model =
         -- build the new cache
         updatedComicsCache =
             updateComicsCache
-                parentComic
+                updatedWorkingConnections
                 model.comicsCache
 
         updatedAnswersCache =
@@ -343,13 +343,30 @@ dequeuePendingComic parentCharacterId parentComic pendingComics =
         |> Dict.filter (\k v -> v |> Dict.isEmpty |> not)
 
 
-updateComicsCache : Maybe Int -> Connection -> WorkingCache -> WorkingCache
-updateComicsCache parentComicId connection currentCache =
-    case comicId parentComicId of
-        Just id ->
-            Dict.insert id connection currentCache
+updateComicsCache : WorkingConnections -> WorkingCache -> WorkingCache
+updateComicsCache workingConnections currentCache =
+    case workingConnections of
+        Asked connections ->
+            let
+                updatedCache =
+                    connections
+                        |> List.getAt 0
+                        |> Maybe.withDefault Dict.empty
+                        |> Dict.values
+                        |> List.filterMap
+                            (\connection ->
+                                case comicId connection.comic of
+                                    Just id ->
+                                        Just ( id, connection )
 
-        Nothing ->
+                                    Nothing ->
+                                        Nothing
+                            )
+                        |> Dict.fromList
+            in
+            Dict.union currentCache updatedCache
+
+        _ ->
             currentCache
 
 
@@ -363,7 +380,7 @@ updateAnswersCache name working answers =
             answers
 
 
-updatePendingComics : ComicsCache -> PendingComics -> WorkingConnections -> PendingComics
+updatePendingComics : WorkingCache -> PendingComics -> WorkingConnections -> PendingComics
 updatePendingComics comicsCache pendingComics currentConnections =
     if Dict.isEmpty pendingComics then
         let
@@ -488,7 +505,7 @@ updateWorkingConnections parentCharacterId parentComic result isLastComic model 
 
         connections =
             characters
-                |> List.map buildConnection parentCharacterId parentComic
+                |> List.map (buildConnection parentCharacterId parentComic)
                 |> Maybe.values
                 |> Dict.fromList
     in
@@ -507,8 +524,7 @@ updateWorkingConnections parentCharacterId parentComic result isLastComic model 
 
 onlyUncached : WorkingCache -> ComicsCache -> ComicsCache
 onlyUncached cache newComics =
-    newComics
-        |> Dict.filter (\k v -> Dict.member k cache)
+    Dict.filter (\k _ -> not (Dict.member k cache)) newComics
 
 
 onlyCached : ComicsCache -> ComicsCache -> ComicsCache
@@ -725,7 +741,7 @@ view model =
         , characterSubmitButton model.endCharacter
         , viewConnection model.workingConnections
         , h2 [] [ text "Cached Comics" ]
-        , viewComicsCache model.comicsCache
+        , viewWorkingCache model.comicsCache
         , h2 [] [ text "Pending Comics" ]
         , viewPendingComics model.pendingComics
         , div [] [ text "Data provided by Marvel. © 2014 Marvel" ]
@@ -785,6 +801,21 @@ viewComicsCache comicsCache =
                     [ text ("id: " ++ String.fromInt k)
                     , text ("name: " ++ comic.name)
                     , text ("resource: " ++ comic.resource)
+                    ]
+            )
+        |> Dict.values
+        |> div []
+
+
+viewWorkingCache : WorkingCache -> Html msg
+viewWorkingCache comicsCache =
+    comicsCache
+        |> Dict.map
+            (\k comic ->
+                div []
+                    [ text ("id: " ++ String.fromInt k)
+                    , text ("name: " ++ comic.comic.name)
+                    , text ("resource: " ++ comic.comic.resource)
                     ]
             )
         |> Dict.values
