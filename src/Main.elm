@@ -228,43 +228,58 @@ update msg model =
             -- time to build up a connection and add it to WorkingConnections
             let
                 -- TODO figure out how to short circuit
-                { pendingComics, workingConnections, workingCache, answersCache } =
+                shifted =
                     shiftQueue parentCharacterId parentComic result model
 
                 pendingLength =
-                    pendingComics
+                    shifted.pendingComics
                         |> Dict.values
                         |> List.map Dict.values
                         |> List.map List.length
                         |> List.sum
 
-                effect =
-                    case workingConnections of
+                ( { workingConnections, pendingComics, answersCache }, effect ) =
+                    case shifted.workingConnections of
                         Asked a ->
                             let
                                 _ =
-                                    Debug.log "List degree is " (List.length a)
+                                    Debug.log "List degree" (List.length a)
 
-                                isNewDegree =
-                                    Maybe.unwrap False Dict.isEmpty (List.head a)
+                                _ =
+                                    Debug.log "Total pending" pendingLength
                             in
-                            if List.length a < 7 && isNewDegree then
+                            if List.length a < 6 && pendingLength == 0 then
                                 let
-                                    _ =
-                                        Debug.log (Debug.toString (List.head (Dict.keys pendingComics))) 3
+                                    cached =
+                                        nextDegree model.endCharacter shifted
+
+                                    -- _ =
+                                    --     Debug.log "next degree" cached
+                                    -- _ =
+                                    --     Debug.log (Debug.toString (List.head (Dict.keys cached.pendingComics))) 3
                                 in
-                                Just (LoadComicCharacters pendingComics)
+                                ( cached, Just (LoadComicCharacters cached.pendingComics) )
 
                             else
-                                Nothing
+                                ( { workingConnections = shifted.workingConnections
+                                  , pendingComics = shifted.pendingComics
+                                  , answersCache = shifted.answersCache
+                                  }
+                                , Nothing
+                                )
 
                         _ ->
-                            Nothing
+                            ( { workingConnections = shifted.workingConnections
+                              , pendingComics = shifted.pendingComics
+                              , answersCache = shifted.answersCache
+                              }
+                            , Nothing
+                            )
             in
             ( { model
                 | workingConnections = workingConnections
                 , pendingComics = pendingComics
-                , workingCache = workingCache
+                , workingCache = shifted.workingCache
                 , answersCache = answersCache
               }
             , effect
@@ -272,15 +287,20 @@ update msg model =
 
 
 nextDegree :
-    Int
-    -> Comic
-    -> Model
+    String
+    ->
+        { a
+            | workingConnections : WorkingConnections
+            , pendingComics : PendingComics
+            , answersCache : Dict String Answer
+            , workingCache : WorkingCache
+        }
     ->
         { workingConnections : WorkingConnections
         , pendingComics : PendingComics
         , answersCache : Dict String Answer
         }
-nextDegree parentCharacterId parentComic model =
+nextDegree endCharacter model =
     case model.workingConnections of
         Asked workingConnections ->
             let
@@ -291,6 +311,14 @@ nextDegree parentCharacterId parentComic model =
                         -- now Dict Int Connection
                         |> Dict.map queueComics
 
+                _ =
+                    pending
+                        |> Dict.values
+                        |> List.map Dict.values
+                        |> List.map List.length
+                        |> List.sum
+                        |> Debug.log "next pending"
+
                 cachedConnections : Dict Int WorkingConnection
                 cachedConnections =
                     loadConnectionsFromCache pending model.workingCache
@@ -299,16 +327,27 @@ nextDegree parentCharacterId parentComic model =
                 working =
                     [ [ cachedConnections ], workingConnections ]
                         |> List.concat
-                        |> checkForConnection model.endCharacter
+                        |> checkForConnection endCharacter
 
                 answersCache =
                     updateAnswersCache
-                        model.endCharacter
+                        endCharacter
                         working
                         model.answersCache
+
+                dequeued =
+                    dequeuePendingFromCached pending model.workingCache
+
+                _ =
+                    dequeued
+                        |> Dict.values
+                        |> List.map Dict.values
+                        |> List.map List.length
+                        |> List.sum
+                        |> Debug.log "next dequeued pending"
             in
             { workingConnections = working
-            , pendingComics = dequeuePendingFromCached pending model.workingCache
+            , pendingComics = dequeued
             , answersCache = answersCache
             }
 
@@ -330,13 +369,13 @@ dequeuePendingFromCached pending workingCache =
                             case Dict.get id workingCache of
                                 -- should this be cache or connections
                                 Just cachedComic ->
-                                    cachedComic.parentId == id
+                                    cachedComic.parentId /= id
 
                                 Nothing ->
-                                    False
+                                    True
                         )
             )
-        |> Dict.filter (\_ v -> Dict.isEmpty v)
+        |> Dict.filter (\_ v -> not (Dict.isEmpty v))
 
 
 loadConnectionsFromCache : PendingComics -> WorkingCache -> Dict Int WorkingConnection
