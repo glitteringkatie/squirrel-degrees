@@ -264,11 +264,85 @@ update msg model =
             ( { model
                 | workingConnections = workingConnections
                 , pendingComics = pendingComics
-                , comicsCache = comicsCache
+                , workingCache = workingCache
                 , answersCache = answersCache
               }
             , effect
             )
+
+
+nextDegree :
+    Int
+    -> Comic
+    -> Model
+    ->
+        { workingConnections : WorkingConnections
+        , pendingComics : PendingComics
+        }
+nextDegree parentCharacterId parentComic model =
+    case model.workingConnections of
+        Asked workingConnections ->
+            let
+                pending =
+                    workingConnections
+                        |> List.getAt 0
+                        |> Maybe.withDefault Dict.empty
+                        -- now Dict Int Connection
+                        |> Dict.map queueComics
+
+                cachedConnections : Dict Int WorkingConnection
+                cachedConnections =
+                    loadConnectionsFromCache pending model.workingCache
+
+                working : List (Dict Int WorkingConnection)
+                working =
+                    List.concat [ [ cachedConnections ], workingConnections ]
+            in
+            { workingConnections = checkForConnection model.endCharacter working
+            , pendingComics = dequeuePendingFromCached pending model.workingCache
+            }
+
+        _ ->
+            { workingConnections = model.workingConnections
+            , pendingComics = model.pendingComics
+            }
+
+
+dequeuePendingFromCached : PendingComics -> WorkingCache -> PendingComics
+dequeuePendingFromCached pending workingCache =
+    pending
+        |> Dict.map
+            (\parentCharacterId comics ->
+                comics
+                    |> Dict.filter
+                        (\id comic ->
+                            case Dict.get id workingCache of
+                                -- should this be cache or connections
+                                Just cachedComic ->
+                                    cachedComic.parentId == id
+
+                                Nothing ->
+                                    False
+                        )
+            )
+        |> Dict.filter (\_ v -> Dict.isEmpty v)
+
+
+loadConnectionsFromCache : PendingComics -> WorkingCache -> Dict Int WorkingConnection
+loadConnectionsFromCache pending workingCache =
+    workingCache
+        |> Dict.filter
+            (\id connection ->
+                case Dict.get connection.parentId pending of
+                    Just pendingCall ->
+                        Maybe.isJust (Dict.get id pendingCall)
+
+                    Nothing ->
+                        False
+            )
+        |> Dict.values
+        |> List.map (\connection -> ( connection.parentId, connection ))
+        |> Dict.fromList
 
 
 shiftQueue :
