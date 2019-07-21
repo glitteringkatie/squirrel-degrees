@@ -278,6 +278,7 @@ nextDegree :
     ->
         { workingConnections : WorkingConnections
         , pendingComics : PendingComics
+        , answersCache : Dict String Answer
         }
 nextDegree parentCharacterId parentComic model =
     case model.workingConnections of
@@ -294,17 +295,27 @@ nextDegree parentCharacterId parentComic model =
                 cachedConnections =
                     loadConnectionsFromCache pending model.workingCache
 
-                working : List (Dict Int WorkingConnection)
+                working : WorkingConnections
                 working =
-                    List.concat [ [ cachedConnections ], workingConnections ]
+                    [ [ cachedConnections ], workingConnections ]
+                        |> List.concat
+                        |> checkForConnection model.endCharacter
+
+                answersCache =
+                    updateAnswersCache
+                        model.endCharacter
+                        working
+                        model.answersCache
             in
-            { workingConnections = checkForConnection model.endCharacter working
+            { workingConnections = working
             , pendingComics = dequeuePendingFromCached pending model.workingCache
+            , answersCache = answersCache
             }
 
         _ ->
             { workingConnections = model.workingConnections
             , pendingComics = model.pendingComics
+            , answersCache = model.answersCache
             }
 
 
