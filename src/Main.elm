@@ -385,7 +385,6 @@ shiftQueue parentCharacterId parentComic result model =
                 parentCharacterId
                 parentComic
                 result
-                isLastComic
                 model
 
         -- build the new cache
@@ -394,17 +393,15 @@ shiftQueue parentCharacterId parentComic result model =
                 updatedWorkingConnections
                 model.workingCache
 
-        updatedAnswersCache =
-            updateAnswersCache
-                model.endCharacter
-                updatedWorkingConnections
-                model.answersCache
-
         -- Build up pending comics (should be only uncached here)
     in
     { workingConnections = updatedWorkingConnections
     , workingCache = updatedComicsCache
-    , answersCache = updatedAnswersCache
+    , answersCache =
+        updateAnswersCache
+            model.endCharacter
+            updatedWorkingConnections
+            model.answersCache
     , pendingComics =
         updatePendingComics
             updatedComicsCache
@@ -575,10 +572,9 @@ updateWorkingConnections :
     Int
     -> Comic
     -> Result Http.Error (List ComicsForCharacter)
-    -> Bool
     -> Model
     -> WorkingConnections
-updateWorkingConnections parentCharacterId parentComic result isLastComic model =
+updateWorkingConnections parentCharacterId parentComic result model =
     let
         -- result is the list of character info including the comics they are in
         -- so characters are the list of characters connected to parentCharacterId by parentComic
@@ -600,7 +596,7 @@ updateWorkingConnections parentCharacterId parentComic result isLastComic model 
     case ( model.workingConnections, result ) of
         ( Asked current, Ok _ ) ->
             connections
-                |> updateConnections isLastComic current
+                |> updateConnections current
                 |> checkForConnection model.endCharacter
 
         ( _, Err _ ) ->
@@ -661,8 +657,8 @@ pluckComics details =
         |> Just
 
 
-updateConnections : Bool -> List (Dict Int WorkingConnection) -> Dict Int WorkingConnection -> List (Dict Int WorkingConnection)
-updateConnections isLastComic currentConnections newConnections =
+updateConnections : List (Dict Int WorkingConnection) -> Dict Int WorkingConnection -> List (Dict Int WorkingConnection)
+updateConnections currentConnections newConnections =
     let
         currentDegree =
             currentConnections
@@ -675,11 +671,7 @@ updateConnections isLastComic currentConnections newConnections =
         untouchedConnections =
             Maybe.withDefault [] (List.tail currentConnections)
     in
-    if isLastComic then
-        List.concat [ [ Dict.empty, updatedDegree ], untouchedConnections ]
-
-    else
-        List.concat [ [ updatedDegree ], untouchedConnections ]
+    List.concat [ [ updatedDegree ], untouchedConnections ]
 
 
 perform : ( Model, Maybe Effect ) -> ( Model, Cmd Msg )
