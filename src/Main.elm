@@ -302,19 +302,17 @@ nextDegree endCharacter model =
     case model.workingConnections of
         Asked workingConnections ->
             let
+                pending : PendingComics
                 pending =
                     workingConnections
                         |> List.getAt 0
                         |> Maybe.withDefault Dict.empty
                         -- now Dict Int Connection
-                        |> Dict.map queueComics
+                        |> queueComics
 
                 _ =
                     pending
-                        |> Dict.values
-                        |> List.map Dict.values
-                        |> List.map List.length
-                        |> List.sum
+                        |> Dict.size
                         |> Debug.log "next pending"
 
                 cachedConnections : Dict Int WorkingConnection
@@ -484,13 +482,54 @@ updateAnswersCache name working answers =
             answers
 
 
-queueComics : Int -> WorkingConnection -> Dict Int Comic
-queueComics _ node =
-    node.comics
-        |> List.map (\comic -> ( Maybe.withDefault 0 (comicId comic), comic ))
-        |> List.filter (\( k, _ ) -> k /= 0)
-        -- Filtered out anything that didn't successfully translate to a comicId
-        |> Dict.fromList
+queueComics : Dict Int WorkingConnection -> Dict Int Comic
+queueComics workingConnections =
+    -- TODO START HERE
+    -- For each connection's comic either add that comic to the queue with just the
+    -- character's id in parents or if the comic is already accounted for, add
+    -- character's id to parents
+    -- workingConnections.comics
+    --     |> List.map (\comic -> ( Maybe.withDefault 0 (comicId comic), comic ))
+    --     |> List.filter (\( k, _ ) -> k /= 0)
+    --     -- Filtered out anything that didn't successfully translate to a comicId
+    --     |> Dict.fromList
+    workingConnections
+        |> Dict.toList
+        |> List.foldl
+            (\( parentId, connection ) acc ->
+                connection.comics
+                    |> List.map
+                        (\comic ->
+                            ( case comicId comic of
+                                Just id ->
+                                    case Dict.get id acc of
+                                        Just pending ->
+                                            Dict.insert id { pending | parents = parentId :: pending.parents } acc
+
+                                        Nothing ->
+                                            Dict.insert id
+                                                { name = comic.name
+                                                , resource = comic.resource
+                                                , parents = [ parentId ]
+                                                }
+                                                acc
+
+                                Nothing ->
+                                    acc
+                            , { comic | parents = [ parentId ] }
+                            )
+                        )
+             -- Filtered out anything that didn't successfully translate to a comicId
+            )
+            Dict.empty
+
+
+
+-- We have a list of lists where each list holds a comic indexed by its id and containing its parent Id
+-- we want to merge/dedupe these lists so lists with the same comic ID merge their parents
+-- |> Dict.map (\parentId connection ->
+--     List.map (add to queue or add just parentId to parents) connection.comics
+-- )
 
 
 buildAnswer : List (Dict Int WorkingConnection) -> Int -> Int -> Answer -> Answer
