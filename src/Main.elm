@@ -494,9 +494,8 @@ queueComics workingConnections =
     --     -- Filtered out anything that didn't successfully translate to a comicId
     --     |> Dict.fromList
     workingConnections
-        |> Dict.toList
-        |> List.foldl
-            (\( parentId, connection ) acc ->
+        |> Dict.foldl
+            (\parentId connection acc ->
                 connection.comics
                     |> List.map
                         (\comic ->
