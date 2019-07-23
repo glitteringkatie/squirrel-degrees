@@ -81,7 +81,7 @@ type alias Answer =
 
 
 type alias PendingComics =
-    Dict Int ComicsCache
+    Dict Int Comic
 
 
 type alias Character =
@@ -143,7 +143,7 @@ type Msg
     = UserUpdatedEndCharacter String
     | UserRequestsConnection
     | GotCharactersComicsDetails (RemoteData (Graphql.Http.Error (Maybe (List SummaryComicsForCharacter))) (Maybe (List SummaryComicsForCharacter)))
-    | GotComicCharacters Int Comic (Result Http.Error (List ComicsForCharacter))
+    | GotComicCharacters (List Int) Comic (Result Http.Error (List ComicsForCharacter))
 
 
 type Effect
@@ -224,19 +224,17 @@ update msg model =
             , effect
             )
 
-        GotComicCharacters parentCharacterId parentComic result ->
+        GotComicCharacters parentCharacters parentComic result ->
             -- time to build up a connection and add it to WorkingConnections
             let
                 -- TODO figure out how to short circuit
                 shifted =
-                    shiftQueue parentCharacterId parentComic result model
+                    shiftQueue parentCharacters parentComic result model
 
                 pendingLength =
                     shifted.pendingComics
                         |> Dict.values
-                        |> List.map Dict.values
-                        |> List.map List.length
-                        |> List.sum
+                        |> List.length
 
                 ( { workingConnections, pendingComics, answersCache }, effect ) =
                     case shifted.workingConnections of
@@ -341,9 +339,7 @@ nextDegree endCharacter model =
                 _ =
                     dequeued
                         |> Dict.values
-                        |> List.map Dict.values
-                        |> List.map List.length
-                        |> List.sum
+                        |> List.length
                         |> Debug.log "next dequeued pending"
             in
             { workingConnections = working
@@ -396,7 +392,7 @@ loadConnectionsFromCache pending workingCache =
 
 
 shiftQueue :
-    Int
+    List Int
     -> Comic
     -> Result Http.Error (List ComicsForCharacter)
     -> Model
@@ -406,22 +402,17 @@ shiftQueue :
         , workingCache : WorkingCache
         , answersCache : Dict String Answer
         }
-shiftQueue parentCharacterId parentComic result model =
+shiftQueue parentCharacters parentComic result model =
     let
         pendingWithoutCurrentComic =
-            dequeuePendingComic parentCharacterId parentComic model.pendingComics
+            dequeuePendingComic parentComic model.pendingComics
 
         isLastComic =
-            pendingWithoutCurrentComic
-                -- needs to know to see if we're empty
-                |> Dict.values
-                |> List.map Dict.isEmpty
-                |> List.all (\v -> v == True)
+            Dict.isEmpty pendingWithoutCurrentComic
 
         -- update working connections with new uncached nodes
         updatedWorkingConnections =
             updateWorkingConnections
-                parentCharacterId
                 parentComic
                 result
                 model
@@ -442,29 +433,18 @@ shiftQueue parentCharacterId parentComic result model =
             updatedWorkingConnections
             model.answersCache
     , pendingComics =
-        updatePendingComics
-            updatedComicsCache
-            pendingWithoutCurrentComic
-            updatedWorkingConnections
+        pendingWithoutCurrentComic
     }
 
 
-dequeuePendingComic : Int -> Comic -> PendingComics -> PendingComics
-dequeuePendingComic parentCharacterId parentComic pendingComics =
-    let
-        updatedPendingQueue =
-            case comicId parentComic of
-                Just id ->
-                    pendingComics
-                        |> Dict.get parentCharacterId
-                        |> Maybe.map (Dict.remove id)
+dequeuePendingComic : Comic -> PendingComics -> PendingComics
+dequeuePendingComic parentComic pendingComics =
+    case comicId parentComic of
+        Just id ->
+            Dict.remove id pendingComics
 
-                Nothing ->
-                    Nothing
-    in
-    updatedPendingQueue
-        |> Maybe.unwrap pendingComics (\p -> Dict.insert parentCharacterId p pendingComics)
-        |> Dict.filter (\k v -> v |> Dict.isEmpty |> not)
+        Nothing ->
+            pendingComics
 
 
 updateComicsCache : WorkingConnections -> WorkingCache -> WorkingCache
@@ -502,26 +482,6 @@ updateAnswersCache name working answers =
 
         _ ->
             answers
-
-
-updatePendingComics : WorkingCache -> PendingComics -> WorkingConnections -> PendingComics
-updatePendingComics workingCache pendingComics currentConnections =
-    if Dict.isEmpty pendingComics then
-        let
-            _ =
-                Debug.log "populating pendingconnections with next batch" 3
-        in
-        currentConnections
-            |> askedWithDefault
-            |> List.getAt 1
-            |> Maybe.withDefault Dict.empty
-            -- now Dict Int Connection
-            |> Dict.map queueComics
-            |> Dict.map (\_ pending -> onlyUncached workingCache pending)
-            |> Dict.filter (\_ pending -> not (Dict.isEmpty pending))
-
-    else
-        pendingComics
 
 
 queueComics : Int -> WorkingConnection -> Dict Int Comic
@@ -588,10 +548,11 @@ checkForConnection name connections =
             Asked connections
 
 
-buildConnection : Int -> Comic -> { id : Int, name : String, comics : List Comic } -> Maybe ( Int, WorkingConnection )
-buildConnection parentCharacterId parentComic character =
+buildConnection : Comic -> { id : Int, name : String, comics : List Comic } -> Int -> Maybe ( Int, WorkingConnection )
+buildConnection parentComic character parentCharacterId =
     if parentCharacterId == character.id then
         Nothing
+        -- TODO confirm this isn't actually problematic
         -- Don't add the parent character!
 
     else
@@ -607,16 +568,28 @@ buildConnection parentCharacterId parentComic character =
             )
 
 
+buildConnections : Maybe Comic -> { id : Int, name : String, comics : List Comic } -> List ( Int, WorkingConnection )
+buildConnections maybeComic character =
+    case maybeComic of
+        Just comic ->
+            List.filterMap (buildConnection comic character) comic.parents
+
+        Nothing ->
+            []
+
+
 updateWorkingConnections :
-    Int
-    -> Comic
+    Comic
     -> Result Http.Error (List ComicsForCharacter)
     -> Model
     -> WorkingConnections
-updateWorkingConnections parentCharacterId parentComic result model =
+updateWorkingConnections parentComic result model =
     let
         -- result is the list of character info including the comics they are in
         -- so characters are the list of characters connected to parentCharacterId by parentComic
+        dequeuedComic =
+            Dict.get (Maybe.withDefault -1 (comicId parentComic)) model.pendingComics
+
         characters : List { id : Int, name : String, comics : List Comic }
         characters =
             Result.unwrap
@@ -628,8 +601,8 @@ updateWorkingConnections parentCharacterId parentComic result model =
 
         connections =
             characters
-                |> List.map (buildConnection parentCharacterId parentComic)
-                |> Maybe.values
+                |> List.map (buildConnections dequeuedComic)
+                |> List.concat
                 |> Dict.fromList
     in
     case ( model.workingConnections, result ) of
@@ -800,11 +773,11 @@ startQuery =
         )
 
 
-comicQuery : ( Int, Comic ) -> Cmd Msg
-comicQuery ( characterId, comic ) =
+comicQuery : ( List Int, Comic ) -> Cmd Msg
+comicQuery ( parentCharacters, comic ) =
     Http.get
         { url = comic.resource ++ "/characters?ts=1&apikey=91cd822df1814786af8af9eb2fbaa1b3&hash=85451d29757f46077d38b315d32990b2"
-        , expect = Http.expectJson (GotComicCharacters characterId comic) comicCharactersDecoder
+        , expect = Http.expectJson (GotComicCharacters parentCharacters comic) comicCharactersDecoder
         }
 
 
