@@ -686,7 +686,7 @@ pluckComics details =
             (\comic ->
                 case ( comic.name, comic.resourceUri ) of
                     ( Just name, Just resourceUri ) ->
-                        Just [ { name = name, resource = resourceUri } ]
+                        Just [ { name = name, resource = resourceUri, parents = [] } ]
 
                     ( _, _ ) ->
                         Nothing
@@ -846,6 +846,7 @@ comicsDecoder =
         (Json.succeed Comic
             |> required "name" Json.string
             |> required "resourceURI" Json.string
+            |> hardcoded []
         )
 
 
@@ -985,6 +986,7 @@ main =
 type alias Comic =
     { name : String
     , resource : String
+    , parents : List Int
     }
 
 
