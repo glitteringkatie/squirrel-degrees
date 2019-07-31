@@ -482,53 +482,42 @@ updateAnswersCache name working answers =
             answers
 
 
+queueConnectionsComic : ( Int, Comic ) -> Dict Int Comic -> Dict Int Comic
+queueConnectionsComic ( parentId, comic ) acc =
+    case comicId comic of
+        Just id ->
+            case Dict.get id acc of
+                Just existing ->
+                    -- use what's there and just update the parents list
+                    Dict.insert id { existing | parents = parentId :: existing.parents } acc
+
+                Nothing ->
+                    -- entirely new insert
+                    Dict.insert id
+                        { name = comic.name
+                        , resource = comic.resource
+                        , parents = [ parentId ]
+                        }
+                        acc
+
+        Nothing ->
+            acc
+
+
 queueComics : Dict Int WorkingConnection -> Dict Int Comic
 queueComics workingConnections =
     -- TODO START HERE
     -- For each connection's comic either add that comic to the queue with just the
     -- character's id in parents or if the comic is already accounted for, add
     -- character's id to parents
-    -- workingConnections.comics
-    --     |> List.map (\comic -> ( Maybe.withDefault 0 (comicId comic), comic ))
-    --     |> List.filter (\( k, _ ) -> k /= 0)
-    --     -- Filtered out anything that didn't successfully translate to a comicId
-    --     |> Dict.fromList
     workingConnections
-        |> Dict.foldl
-            (\parentId connection acc ->
-                connection.comics
-                    |> List.map
-                        (\comic ->
-                            ( case comicId comic of
-                                Just id ->
-                                    case Dict.get id acc of
-                                        Just pending ->
-                                            Dict.insert id { pending | parents = parentId :: pending.parents } acc
-
-                                        Nothing ->
-                                            Dict.insert id
-                                                { name = comic.name
-                                                , resource = comic.resource
-                                                , parents = [ parentId ]
-                                                }
-                                                acc
-
-                                Nothing ->
-                                    acc
-                            , { comic | parents = [ parentId ] }
-                            )
-                        )
-             -- Filtered out anything that didn't successfully translate to a comicId
+        |> Dict.toList
+        |> List.concatMap
+            (\( parentId, connection ) ->
+                -- here we don't have to worry about a unique key yet
+                List.map (\v -> ( parentId, v )) connection.comics
             )
-            Dict.empty
-
-
-
--- We have a list of lists where each list holds a comic indexed by its id and containing its parent Id
--- we want to merge/dedupe these lists so lists with the same comic ID merge their parents
--- |> Dict.map (\parentId connection ->
---     List.map (add to queue or add just parentId to parents) connection.comics
--- )
+        |> List.foldl queueConnectionsComic Dict.empty
 
 
 buildAnswer : List (Dict Int WorkingConnection) -> Int -> Int -> Answer -> Answer
