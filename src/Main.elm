@@ -59,7 +59,7 @@ type alias Model =
     { workingConnections : WorkingConnections
     , pendingComics : PendingComics
     , endCharacter : String
-    , workingCache : WorkingCache
+    , workingCache : ComicApiCache
     , answersCache : Dict String Answer
     }
 
@@ -74,6 +74,12 @@ type WorkingConnections
 
 type alias WorkingCache =
     Dict Int WorkingConnection
+
+
+{-| by comic ID
+-}
+type alias ComicApiCache =
+    Dict Int (List ComicsForCharacter)
 
 
 type alias Answer =
@@ -291,7 +297,7 @@ nextDegree :
             | workingConnections : WorkingConnections
             , pendingComics : PendingComics
             , answersCache : Dict String Answer
-            , workingCache : WorkingCache
+            , workingCache : ComicApiCache
         }
     ->
         { workingConnections : WorkingConnections
@@ -303,6 +309,7 @@ nextDegree endCharacter model =
         Asked workingConnections ->
             let
                 pending : PendingComics
+                -- indexed by comic id, contains parent characters
                 pending =
                     workingConnections
                         |> List.getAt 0
@@ -352,41 +359,39 @@ nextDegree endCharacter model =
             }
 
 
-dequeuePendingFromCached : PendingComics -> WorkingCache -> PendingComics
+dequeuePendingFromCached : PendingComics -> ComicApiCache -> PendingComics
 dequeuePendingFromCached pending workingCache =
-    pending
-        |> Dict.map
-            (\parentCharacterId comics ->
-                comics
-                    |> Dict.filter
-                        (\id comic ->
-                            case Dict.get id workingCache of
-                                -- should this be cache or connections
-                                Just cachedComic ->
-                                    cachedComic.parentId /= id
-
-                                Nothing ->
-                                    True
-                        )
-            )
-        |> Dict.filter (\_ v -> not (Dict.isEmpty v))
+    Dict.filter (\k _ -> not (Dict.member k workingCache)) pending
 
 
-loadConnectionsFromCache : PendingComics -> WorkingCache -> Dict Int WorkingConnection
+loadConnectionsFromCache : PendingComics -> ComicApiCache -> Dict Int WorkingConnection
 loadConnectionsFromCache pending workingCache =
-    workingCache
-        |> Dict.filter
-            (\id connection ->
-                case Dict.get connection.parentId pending of
-                    Just pendingCall ->
-                        Maybe.isJust (Dict.get id pendingCall)
+    -- pending comics is indexed by comic id and contains a list of parent characters
+    -- comics cache is indexed by comic ids and contains a list of parent characters
+    -- based on pending, we'll check if the comic
+    pending
+        |> Dict.toList
+        |> List.filterMap
+            (\( id, comic ) ->
+                case Dict.get id workingCache of
+                    Just cachedCall ->
+                        Just ( comic, cachedCall )
 
                     Nothing ->
-                        False
+                        Nothing
             )
-        |> Dict.values
-        |> List.map (\connection -> ( connection.parentId, connection ))
+        |> List.map buildConnectionFromCache
+        |> List.concat
         |> Dict.fromList
+
+
+buildConnectionFromCache : ( Comic, List ComicsForCharacter ) -> List ( Int, WorkingConnection )
+buildConnectionFromCache ( parentComic, characters ) =
+    characters
+        |> List.map
+            (\character -> { name = character.name, id = character.id, comics = character.comics.items })
+        |> List.map (buildConnections (Just parentComic))
+        |> List.concat
 
 
 shiftQueue :
@@ -397,7 +402,7 @@ shiftQueue :
     ->
         { workingConnections : WorkingConnections
         , pendingComics : PendingComics
-        , workingCache : WorkingCache
+        , workingCache : ComicApiCache
         , answersCache : Dict String Answer
         }
 shiftQueue parentCharacters parentComic result model =
@@ -418,7 +423,8 @@ shiftQueue parentCharacters parentComic result model =
         -- build the new cache
         updatedComicsCache =
             updateComicsCache
-                updatedWorkingConnections
+                parentComic
+                result
                 model.workingCache
 
         -- Build up pending comics (should be only uncached here)
@@ -445,30 +451,13 @@ dequeuePendingComic parentComic pendingComics =
             pendingComics
 
 
-updateComicsCache : WorkingConnections -> WorkingCache -> WorkingCache
-updateComicsCache workingConnections currentCache =
-    case workingConnections of
-        Asked connections ->
-            let
-                updatedCache =
-                    connections
-                        |> List.getAt 0
-                        |> Maybe.withDefault Dict.empty
-                        |> Dict.values
-                        |> List.filterMap
-                            (\connection ->
-                                case comicId connection.comic of
-                                    Just id ->
-                                        Just ( id, connection )
+updateComicsCache : Comic -> Result Http.Error (List ComicsForCharacter) -> ComicApiCache -> ComicApiCache
+updateComicsCache parentComic result currentCache =
+    case ( comicId parentComic, result ) of
+        ( Just id, Ok characters ) ->
+            Dict.insert id characters currentCache
 
-                                    Nothing ->
-                                        Nothing
-                            )
-                        |> Dict.fromList
-            in
-            Dict.union currentCache updatedCache
-
-        _ ->
+        ( _, _ ) ->
             currentCache
 
 
@@ -645,19 +634,19 @@ updateWorkingConnections parentComic result model =
             model.workingConnections
 
 
-onlyUncached : WorkingCache -> ComicsCache -> ComicsCache
+onlyUncached : ComicApiCache -> ComicApiCache -> ComicApiCache
 onlyUncached cache newComics =
     Dict.filter (\k _ -> not (Dict.member k cache)) newComics
 
 
-onlyCached : ComicsCache -> ComicsCache -> ComicsCache
+onlyCached : ComicApiCache -> ComicApiCache -> ComicApiCache
 onlyCached cache newComics =
     Dict.intersect newComics cache
 
 
 {-| only used for the first call since this only handles 1 parent character id
 -}
-allOrNothing : Maybe (List SummaryComicsForCharacter) -> ComicsCache
+allOrNothing : Maybe (List SummaryComicsForCharacter) -> ComicApiCache
 allOrNothing details =
     case pluckComics details of
         Just comics ->
@@ -861,9 +850,9 @@ view model =
         , characterSubmitButton model.endCharacter
         , viewConnection model.workingConnections
         , h2 [] [ text "Cached Comics" ]
-        , viewWorkingCache model.workingCache
+        , viewComicApiCache model.workingCache
         , h2 [] [ text "Pending Comics" ]
-        , viewPendingComics model.pendingComics
+        , viewComicsCache model.pendingComics
         , div [] [ text "Data provided by Marvel. © 2014 Marvel" ]
         ]
         |> Html.toUnstyled
@@ -898,14 +887,13 @@ viewConnection working =
             div [] []
 
 
-viewPendingComics : PendingComics -> Html msg
-viewPendingComics pendingComics =
-    pendingComics
+viewComicApiCache : ComicApiCache -> Html msg
+viewComicApiCache apiCache =
+    apiCache
         |> Dict.map
-            (\k cache ->
+            (\k _ ->
                 div []
-                    [ text ("parent character id: " ++ String.fromInt k)
-                    , viewComicsCache cache
+                    [ text ("comic id: " ++ String.fromInt k)
                     ]
             )
         |> Dict.values
