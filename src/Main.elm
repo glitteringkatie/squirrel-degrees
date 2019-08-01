@@ -192,12 +192,29 @@ update msg model =
                         _ ->
                             Nothing
 
-                ( pendingComics, workingConnections, effect ) =
+                { pendingComics, workingConnections, answersCache, effect } =
                     case ( maybeDetails, parentCharacterId ) of
                         ( RemoteData.Success details, Just id ) ->
                             let
                                 allDetails =
                                     allOrNothing id details
+
+                                cachedConnections : Dict Int WorkingConnection
+                                cachedConnections =
+                                    loadConnectionsFromCache allDetails model.workingCache
+
+                                working : WorkingConnections
+                                working =
+                                    checkForConnection model.endCharacter [ cachedConnections ]
+
+                                _ =
+                                    Debug.log "working connections are " cachedConnections
+
+                                answers =
+                                    updateAnswersCache
+                                        model.endCharacter
+                                        working
+                                        model.answersCache
 
                                 pending =
                                     uncachedPending model.workingCache allDetails
@@ -205,26 +222,30 @@ update msg model =
                                 _ =
                                     Debug.log "allDetails: " allDetails
                             in
-                            ( pending
-                            , model.workingConnections
-                            , Just (LoadComicCharacters pending)
-                            )
+                            { pendingComics = pending
+                            , workingConnections = working
+                            , answersCache = answers
+                            , effect = Just (LoadComicCharacters pending)
+                            }
 
                         ( RemoteData.Failure _, _ ) ->
-                            ( model.pendingComics
-                            , Error "Something went wrong initially!"
-                            , Nothing
-                            )
+                            { pendingComics = model.pendingComics
+                            , workingConnections = Error "Something went wrong initially!"
+                            , answersCache = model.answersCache
+                            , effect = Nothing
+                            }
 
                         ( _, _ ) ->
-                            ( model.pendingComics
-                            , model.workingConnections
-                            , Nothing
-                            )
+                            { pendingComics = model.pendingComics
+                            , workingConnections = model.workingConnections
+                            , answersCache = model.answersCache
+                            , effect = Nothing
+                            }
             in
             ( { model
                 | pendingComics = pendingComics
                 , workingConnections = workingConnections
+                , answersCache = answersCache
               }
             , effect
             )
