@@ -197,11 +197,10 @@ update msg model =
                         ( RemoteData.Success details, Just id ) ->
                             let
                                 allDetails =
-                                    allOrNothing details
+                                    allOrNothing id details
 
                                 pending =
-                                    Dict.singleton id
-                                        (onlyUncached model.workingCache allDetails)
+                                    uncachedPending model.workingCache allDetails
 
                                 _ =
                                     Debug.log "allDetails: " allDetails
@@ -634,23 +633,46 @@ updateWorkingConnections parentComic result model =
             model.workingConnections
 
 
-onlyUncached : ComicApiCache -> ComicApiCache -> ComicApiCache
-onlyUncached cache newComics =
+uncachedPending : ComicApiCache -> PendingComics -> PendingComics
+uncachedPending cache newComics =
     Dict.filter (\k _ -> not (Dict.member k cache)) newComics
 
 
-onlyCached : ComicApiCache -> ComicApiCache -> ComicApiCache
-onlyCached cache newComics =
-    Dict.intersect newComics cache
+
+-- cachedConnections : ComicApiCache -> PendingComics -> List WorkingConnection
+-- cachedConnections cache newComics =
+--     Dict.intersect newComics cache
 
 
 {-| only used for the first call since this only handles 1 parent character id
 -}
-allOrNothing : Maybe (List SummaryComicsForCharacter) -> ComicApiCache
-allOrNothing details =
+
+
+
+-- type alias SummaryData =
+--     { name : Maybe String
+--     , resourceUri : Maybe String
+--     }
+-- type alias SummaryComicsForCharacter =
+--     { id : Maybe Scalar.Id
+--     -- , name : Maybe String
+--     , comics : Maybe (List SummaryData)
+--     }
+-- to
+-- type alias Comic =
+-- { name : String
+-- , resource : String
+-- , parents : List Int
+-- }
+
+
+allOrNothing : Int -> Maybe (List SummaryComicsForCharacter) -> PendingComics
+allOrNothing characterId details =
     case pluckComics details of
         Just comics ->
-            fromList comics
+            comics
+                |> List.map (addParent characterId)
+                |> fromList
 
         Nothing ->
             Dict.empty
@@ -733,8 +755,8 @@ runEffect model effect =
                         Debug.log ("Loading comic characters for " ++ Debug.toString (Dict.keys pendingComics))
                 in
                 pendingComics
-                    |> Dict.toList
-                    |> List.concatMap (\( parent, cache ) -> List.map (Tuple.pair parent) (Dict.values cache))
+                    |> Dict.values
+                    |> List.map (\comic -> ( comic.parents, comic ))
                     |> List.map comicQuery
                     |> Cmd.batch
 
@@ -986,11 +1008,30 @@ type alias Resource =
     String
 
 
-fromList : List Comic -> ComicsCache
+
+-- type alias ComicsForCharacter =
+--     { id : Int
+--     , name : String
+--     , comics : ComicInfo
+--     }
+-- type alias ComicInfo =
+--     { available : Int, items : List Comic }
+
+
+fromList : List Comic -> PendingComics
 fromList comics =
     comics
         |> comicTuples
         |> Dict.fromList
+
+
+addParent : Int -> Comic -> Comic
+addParent characterId comic =
+    let
+        uniqueParents =
+            List.unique (characterId :: comic.parents)
+    in
+    { comic | parents = uniqueParents }
 
 
 {-| "<http://gateway.marvel.com/v1/public/comics/58636">
