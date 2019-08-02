@@ -72,10 +72,6 @@ type WorkingConnections
     | Error String
 
 
-type alias WorkingCache =
-    Dict Int WorkingConnection
-
-
 {-| by comic ID
 -}
 type alias ComicApiCache =
@@ -506,7 +502,6 @@ queueConnectionsComic ( parentId, comic ) acc =
 
 queueComics : Dict Int WorkingConnection -> Dict Int Comic
 queueComics workingConnections =
-    -- TODO START HERE
     -- For each connection's comic either add that comic to the queue with just the
     -- character's id in parents or if the comic is already accounted for, add
     -- character's id to parents
@@ -907,21 +902,6 @@ viewComicsCache comicsCache =
                     [ text ("id: " ++ String.fromInt k)
                     , text ("name: " ++ comic.name)
                     , text ("resource: " ++ comic.resource)
-                    ]
-            )
-        |> Dict.values
-        |> div []
-
-
-viewWorkingCache : WorkingCache -> Html msg
-viewWorkingCache workingCache =
-    workingCache
-        |> Dict.map
-            (\k comic ->
-                div []
-                    [ text ("id: " ++ String.fromInt k)
-                    , text ("name: " ++ comic.comic.name)
-                    , text ("resource: " ++ comic.comic.resource)
                     ]
             )
         |> Dict.values
