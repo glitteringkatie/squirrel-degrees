@@ -339,7 +339,6 @@ nextDegree endCharacter model =
 
                 _ =
                     pending
-                        |> Dict.size
                         |> Debug.log "next pending"
 
                 cachedConnections : Dict Int WorkingConnection
@@ -522,10 +521,11 @@ queueComics workingConnections =
     workingConnections
         |> Dict.toList
         |> List.concatMap
-            (\( parentId, connection ) ->
+            (\( characterId, connection ) ->
                 -- here we don't have to worry about a unique key yet
-                List.map (\v -> ( parentId, v )) connection.comics
+                List.map (\v -> ( characterId, v )) connection.comics
             )
+        |> Debug.log "connections with their parent character"
         |> List.foldl queueConnectionsComic Dict.empty
 
 
