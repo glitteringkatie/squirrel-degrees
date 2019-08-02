@@ -964,16 +964,6 @@ type alias Resource =
     String
 
 
-
--- type alias ComicsForCharacter =
---     { id : Int
---     , name : String
---     , comics : ComicInfo
---     }
--- type alias ComicInfo =
---     { available : Int, items : List Comic }
-
-
 fromList : List Comic -> PendingComics
 fromList comics =
     comics
