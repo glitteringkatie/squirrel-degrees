@@ -218,9 +218,6 @@ update msg model =
 
                                 pending =
                                     uncachedPending model.workingCache allDetails
-
-                                _ =
-                                    Debug.log "allDetails: " allDetails
                             in
                             { pendingComics = pending
                             , workingConnections = working
@@ -276,11 +273,6 @@ update msg model =
                                 let
                                     cached =
                                         nextDegree model.endCharacter shifted
-
-                                    -- _ =
-                                    --     Debug.log "next degree" cached
-                                    -- _ =
-                                    --     Debug.log (Debug.toString (List.head (Dict.keys cached.pendingComics))) 3
                                 in
                                 ( cached, Just (LoadComicCharacters cached.pendingComics) )
 
@@ -525,7 +517,6 @@ queueComics workingConnections =
                 -- here we don't have to worry about a unique key yet
                 List.map (\v -> ( characterId, v )) connection.comics
             )
-        |> Debug.log "connections with their parent character"
         |> List.foldl queueConnectionsComic Dict.empty
 
 
@@ -659,34 +650,6 @@ uncachedPending cache newComics =
     Dict.filter (\k _ -> not (Dict.member k cache)) newComics
 
 
-
--- cachedConnections : ComicApiCache -> PendingComics -> List WorkingConnection
--- cachedConnections cache newComics =
---     Dict.intersect newComics cache
-
-
-{-| only used for the first call since this only handles 1 parent character id
--}
-
-
-
--- type alias SummaryData =
---     { name : Maybe String
---     , resourceUri : Maybe String
---     }
--- type alias SummaryComicsForCharacter =
---     { id : Maybe Scalar.Id
---     -- , name : Maybe String
---     , comics : Maybe (List SummaryData)
---     }
--- to
--- type alias Comic =
--- { name : String
--- , resource : String
--- , parents : List Int
--- }
-
-
 allOrNothing : Int -> Maybe (List SummaryComicsForCharacter) -> PendingComics
 allOrNothing characterId details =
     case pluckComics details of
@@ -763,18 +726,10 @@ runEffect model effect =
 
         LoadComicCharacters pendingComics ->
             if Dict.isEmpty pendingComics then
-                let
-                    _ =
-                        Debug.log ("Not loading comic characters for: " ++ Debug.toString pendingComics)
-                in
                 Cmd.none
                 -- keeping this Cmd.none is _super_ helpful in performance, figure out why later
 
             else
-                let
-                    _ =
-                        Debug.log ("Loading comic characters for " ++ Debug.toString (Dict.keys pendingComics))
-                in
                 pendingComics
                     |> Dict.values
                     |> List.map (\comic -> ( comic.parents, comic ))
