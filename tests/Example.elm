@@ -24,7 +24,11 @@ suite =
                 let
                     spidey =
                         { character = "Spider-Man"
-                        , comic = { name = "BFFs", resource = "https://www.bffs.com" }
+                        , comic =
+                            { name = "Cats"
+                            , resource = "https://www.cats.com"
+                            , parents = []
+                            }
                         , parentId = 42
                         }
                 in
@@ -40,13 +44,21 @@ suite =
                 let
                     chewie =
                         { character = "Chewie"
-                        , comic = { name = "Cats", resource = "https://www.cats.com" }
+                        , comic =
+                            { name = "Cats"
+                            , resource = "https://www.cats.com"
+                            , parents = []
+                            }
                         , parentId = 42
                         }
 
                     spidey =
                         { character = "Spider-Man"
-                        , comic = { name = "BFFs", resource = "https://www.bffs.com" }
+                        , comic =
+                            { name = "BFFs"
+                            , resource = "https://www.bffs.com"
+                            , parents = []
+                            }
                         , parentId = 42
                         }
                 in
