@@ -59,7 +59,7 @@ type alias Model =
     { workingConnections : WorkingConnections
     , pendingComics : PendingComics
     , endCharacter : String
-    , workingCache : ComicApiCache
+    , comicApiCache : ComicApiCache
     , answersCache : Dict String Answer
     }
 
@@ -130,7 +130,7 @@ init =
     ( { endCharacter = ""
       , workingConnections = NotAsked
       , pendingComics = Dict.empty -- comics I am currently working off of
-      , workingCache = Dict.empty
+      , comicApiCache = Dict.empty
       , answersCache = Dict.empty
       }
     , Nothing
@@ -197,7 +197,7 @@ update msg model =
 
                                 cachedConnections : Dict Int WorkingConnection
                                 cachedConnections =
-                                    loadConnectionsFromCache allDetails model.workingCache
+                                    loadConnectionsFromCache allDetails model.comicApiCache
 
                                 working : WorkingConnections
                                 working =
@@ -213,7 +213,7 @@ update msg model =
                                         model.answersCache
 
                                 pending =
-                                    uncachedPending model.workingCache allDetails
+                                    uncachedPending model.comicApiCache allDetails
                             in
                             { pendingComics = pending
                             , workingConnections = working
@@ -291,7 +291,7 @@ update msg model =
             ( { model
                 | workingConnections = workingConnections
                 , pendingComics = pendingComics
-                , workingCache = shifted.workingCache
+                , comicApiCache = shifted.comicApiCache
                 , answersCache = answersCache
               }
             , effect
@@ -305,7 +305,7 @@ nextDegree :
             | workingConnections : WorkingConnections
             , pendingComics : PendingComics
             , answersCache : Dict String Answer
-            , workingCache : ComicApiCache
+            , comicApiCache : ComicApiCache
         }
     ->
         { workingConnections : WorkingConnections
@@ -331,7 +331,7 @@ nextDegree endCharacter model =
 
                 cachedConnections : Dict Int WorkingConnection
                 cachedConnections =
-                    loadConnectionsFromCache pending model.workingCache
+                    loadConnectionsFromCache pending model.comicApiCache
 
                 working : WorkingConnections
                 working =
@@ -346,7 +346,7 @@ nextDegree endCharacter model =
                         model.answersCache
 
                 dequeued =
-                    dequeuePendingFromCached pending model.workingCache
+                    dequeuePendingFromCached pending model.comicApiCache
 
                 _ =
                     dequeued
@@ -367,12 +367,12 @@ nextDegree endCharacter model =
 
 
 dequeuePendingFromCached : PendingComics -> ComicApiCache -> PendingComics
-dequeuePendingFromCached pending workingCache =
-    Dict.filter (\k _ -> not (Dict.member k workingCache)) pending
+dequeuePendingFromCached pending comicApiCache =
+    Dict.filter (\k _ -> not (Dict.member k comicApiCache)) pending
 
 
 loadConnectionsFromCache : PendingComics -> ComicApiCache -> Dict Int WorkingConnection
-loadConnectionsFromCache pending workingCache =
+loadConnectionsFromCache pending comicApiCache =
     -- pending comics is indexed by comic id and contains a list of parent characters
     -- comics cache is indexed by comic ids and contains a list of parent characters
     -- based on pending, we'll check if the comic
@@ -380,7 +380,7 @@ loadConnectionsFromCache pending workingCache =
         |> Dict.toList
         |> List.filterMap
             (\( id, comic ) ->
-                case Dict.get id workingCache of
+                case Dict.get id comicApiCache of
                     Just cachedCall ->
                         Just ( comic, cachedCall )
 
@@ -409,7 +409,7 @@ shiftQueue :
     ->
         { workingConnections : WorkingConnections
         , pendingComics : PendingComics
-        , workingCache : ComicApiCache
+        , comicApiCache : ComicApiCache
         , answersCache : Dict String Answer
         }
 shiftQueue parentCharacters parentComic result model =
@@ -432,12 +432,12 @@ shiftQueue parentCharacters parentComic result model =
             updateComicsCache
                 parentComic
                 result
-                model.workingCache
+                model.comicApiCache
 
         -- Build up pending comics (should be only uncached here)
     in
     { workingConnections = updatedWorkingConnections
-    , workingCache = updatedComicsCache
+    , comicApiCache = updatedComicsCache
     , answersCache =
         updateAnswersCache
             model.endCharacter
@@ -843,7 +843,7 @@ view model =
         , characterSubmitButton model.endCharacter
         , viewConnection model.workingConnections
         , h2 [] [ text "Cached Comics" ]
-        , viewComicApiCache model.workingCache
+        , viewComicApiCache model.comicApiCache
         , h2 [] [ text "Pending Comics" ]
         , viewComicsCache model.pendingComics
         , div [] [ text "Data provided by Marvel. © 2014 Marvel" ]
