@@ -631,21 +631,21 @@ view model =
         |> Html.toUnstyled
 
 
-writeConnection : List Connection -> String
-writeConnection connection =
+writeConnection : List Connection -> String -> String
+writeConnection connection acc =
     case connection of
         [] ->
-            "Squirrel Girl"
+            acc ++ "Squirrel Girl"
 
         conn :: conns ->
-            conn.character ++ " is in " ++ conn.comic.name ++ " with " ++ writeConnection conns
+            writeConnection conns (acc ++ conn.character ++ " is in " ++ conn.comic.name ++ " with ")
 
 
 viewConnection : WorkingConnections -> Html Msg
 viewConnection working =
     case working of
         FoundConnection connection ->
-            div [] [ text (writeConnection connection) ]
+            div [] [ text (writeConnection connection "") ]
 
         NoConnection ->
             div [] [ text "No connection" ]
