@@ -38,8 +38,6 @@ type alias SummaryData =
 
 type alias SummaryComicsForCharacter =
     { id : Maybe Scalar.Id
-
-    -- , name : Maybe String
     , comics : Maybe (List SummaryData)
     }
 

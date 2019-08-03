@@ -784,7 +784,7 @@ writeConnection connection acc =
             acc ++ "Squirrel Girl"
 
         conn :: conns ->
-            writeConnection conns (acc ++ conn.character ++ " is in " ++ conn.comic.name ++ " with ")
+            writeConnection conns (conn.character ++ " is in " ++ conn.comic.name ++ " with " ++ acc)
 
 
 viewConnection : WorkingConnections -> Html Msg
