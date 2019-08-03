@@ -63,7 +63,7 @@ suite =
                         }
                 in
                 Expect.equal
-                    (Main.writeConnection [ chewie, spidey ] "")
+                    (Main.writeConnection [ spidey, chewie ] "")
                     (chewie.character
                         ++ " is in "
                         ++ chewie.comic.name
