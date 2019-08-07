@@ -2,9 +2,12 @@ module Main exposing
     ( Connection
     , Model
     , Msg(..)
+    , WorkingConnection
+    , WorkingConnections(..)
     , characterInput
     , init
     , main
+    , shiftQueue
     , update
     , view
     , viewConnection
@@ -618,6 +621,14 @@ updateWorkingConnections parentComic result model =
             connections
                 |> updateConnections current
                 |> checkForConnection model.endCharacter
+
+        ( FoundConnection _, _ ) ->
+            -- if a connection was found, we don't care if there's a later api error
+            model.workingConnections
+
+        ( NoConnection, _ ) ->
+            -- if a connection was found to not exist, we don't care if there's a later api error
+            model.workingConnections
 
         ( _, Err _ ) ->
             Error "Something went wrong!"
