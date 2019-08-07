@@ -2,9 +2,12 @@ module Main exposing
     ( Connection
     , Model
     , Msg(..)
+    , WorkingConnection
+    , WorkingConnections(..)
     , characterInput
     , init
     , main
+    , shiftQueue
     , update
     , view
     , viewConnection
@@ -23,29 +26,19 @@ import Accessibility.Styled as Html
         , labelHidden
         , text
         )
+import Api exposing (ComicApiCache)
 import BeautifulExample
 import Browser
 import Color
 import Dict exposing (Dict)
 import Graphql.Http
-import Graphql.Http.GraphqlError exposing (GraphqlError)
-import Graphql.Operation exposing (RootQuery)
-import Graphql.OptionalArgument exposing (OptionalArgument(..))
-import Graphql.SelectionSet as SelectionSet exposing (SelectionSet, with)
 import Html as NormHtml
 import Html.Styled.Events exposing (onClick, onInput)
 import Http
 import Json.Decode as Json
 import Json.Decode.Pipeline exposing (hardcoded, optional, required)
 import List.Extra as List
-import Marvelql.InputObject exposing (buildCharacterWhereInput, buildComicWhereInput)
-import Marvelql.Object exposing (Character(..), Comic(..))
-import Marvelql.Object.Character as CharacterApi
-import Marvelql.Object.Comic as ComicApi
-import Marvelql.Object.Summary as Summary
-import Marvelql.Query as Query
 import Marvelql.Scalar as Scalar
-import Marvelql.ScalarCodecs
 import Maybe.Extra as Maybe
 import RemoteData exposing (RemoteData)
 import Result.Extra as Result
@@ -74,16 +67,12 @@ type WorkingConnections
 
 {-| by comic ID
 -}
-type alias ComicApiCache =
-    Dict Int (List ComicsForCharacter)
-
-
 type alias Answer =
     List Connection
 
 
 type alias PendingComics =
-    Dict Int Comic
+    Dict Int Api.Comic
 
 
 type alias Character =
@@ -104,16 +93,16 @@ Just
 -}
 type alias Connection =
     { character : String
-    , comic : Comic
+    , comic : Api.Comic
     , parentId : Int
     }
 
 
 type alias WorkingConnection =
     { character : String
-    , comic : Comic
+    , comic : Api.Comic
     , parentId : Int
-    , comics : List Comic
+    , comics : List Api.Comic
     }
 
 
@@ -144,8 +133,8 @@ init =
 type Msg
     = UserUpdatedEndCharacter String
     | UserRequestsConnection
-    | GotCharactersComicsDetails (RemoteData (Graphql.Http.Error (Maybe (List SummaryComicsForCharacter))) (Maybe (List SummaryComicsForCharacter)))
-    | GotComicCharacters (List Int) Comic (Result Http.Error (List ComicsForCharacter))
+    | GotCharactersComicsDetails (RemoteData (Graphql.Http.Error (Maybe (List Api.SummaryComicsForCharacter))) (Maybe (List Api.SummaryComicsForCharacter)))
+    | GotComicCharacters (List Int) Api.Comic (Result Http.Error (List Api.ComicsForCharacter))
 
 
 type Effect
@@ -392,7 +381,7 @@ loadConnectionsFromCache pending comicApiCache =
         |> Dict.fromList
 
 
-buildConnectionFromCache : ( Comic, List ComicsForCharacter ) -> List ( Int, WorkingConnection )
+buildConnectionFromCache : ( Api.Comic, List Api.ComicsForCharacter ) -> List ( Int, WorkingConnection )
 buildConnectionFromCache ( parentComic, characters ) =
     characters
         |> List.map
@@ -403,8 +392,8 @@ buildConnectionFromCache ( parentComic, characters ) =
 
 shiftQueue :
     List Int
-    -> Comic
-    -> Result Http.Error (List ComicsForCharacter)
+    -> Api.Comic
+    -> Result Http.Error (List Api.ComicsForCharacter)
     -> Model
     ->
         { workingConnections : WorkingConnections
@@ -448,7 +437,7 @@ shiftQueue parentCharacters parentComic result model =
     }
 
 
-dequeuePendingComic : Comic -> PendingComics -> PendingComics
+dequeuePendingComic : Api.Comic -> PendingComics -> PendingComics
 dequeuePendingComic parentComic pendingComics =
     case comicId parentComic of
         Just id ->
@@ -458,7 +447,7 @@ dequeuePendingComic parentComic pendingComics =
             pendingComics
 
 
-updateComicsCache : Comic -> Result Http.Error (List ComicsForCharacter) -> ComicApiCache -> ComicApiCache
+updateComicsCache : Api.Comic -> Result Http.Error (List Api.ComicsForCharacter) -> ComicApiCache -> ComicApiCache
 updateComicsCache parentComic result currentCache =
     case ( comicId parentComic, result ) of
         ( Just id, Ok characters ) ->
@@ -478,7 +467,7 @@ updateAnswersCache name working answers =
             answers
 
 
-queueConnectionsComic : ( Int, Comic ) -> Dict Int Comic -> Dict Int Comic
+queueConnectionsComic : ( Int, Api.Comic ) -> Dict Int Api.Comic -> Dict Int Api.Comic
 queueConnectionsComic ( parentId, comic ) acc =
     case comicId comic of
         Just id ->
@@ -500,7 +489,7 @@ queueConnectionsComic ( parentId, comic ) acc =
             acc
 
 
-queueComics : Dict Int WorkingConnection -> Dict Int Comic
+queueComics : Dict Int WorkingConnection -> Dict Int Api.Comic
 queueComics workingConnections =
     -- For each connection's comic either add that comic to the queue with just the
     -- character's id in parents or if the comic is already accounted for, add
@@ -570,7 +559,7 @@ checkForConnection name connections =
             Asked connections
 
 
-buildConnection : Comic -> { id : Int, name : String, comics : List Comic } -> Int -> Maybe ( Int, WorkingConnection )
+buildConnection : Api.Comic -> { id : Int, name : String, comics : List Api.Comic } -> Int -> Maybe ( Int, WorkingConnection )
 buildConnection parentComic character parentCharacterId =
     if parentCharacterId == character.id then
         Nothing
@@ -590,7 +579,7 @@ buildConnection parentComic character parentCharacterId =
             )
 
 
-buildConnections : Maybe Comic -> { id : Int, name : String, comics : List Comic } -> List ( Int, WorkingConnection )
+buildConnections : Maybe Api.Comic -> { id : Int, name : String, comics : List Api.Comic } -> List ( Int, WorkingConnection )
 buildConnections maybeComic character =
     case maybeComic of
         Just comic ->
@@ -601,8 +590,8 @@ buildConnections maybeComic character =
 
 
 updateWorkingConnections :
-    Comic
-    -> Result Http.Error (List ComicsForCharacter)
+    Api.Comic
+    -> Result Http.Error (List Api.ComicsForCharacter)
     -> Model
     -> WorkingConnections
 updateWorkingConnections parentComic result model =
@@ -612,7 +601,7 @@ updateWorkingConnections parentComic result model =
         dequeuedComic =
             Dict.get (Maybe.withDefault -1 (comicId parentComic)) model.pendingComics
 
-        characters : List { id : Int, name : String, comics : List Comic }
+        characters : List { id : Int, name : String, comics : List Api.Comic }
         characters =
             Result.unwrap
                 []
@@ -633,6 +622,14 @@ updateWorkingConnections parentComic result model =
                 |> updateConnections current
                 |> checkForConnection model.endCharacter
 
+        ( FoundConnection _, _ ) ->
+            -- if a connection was found, we don't care if there's a later api error
+            model.workingConnections
+
+        ( NoConnection, _ ) ->
+            -- if a connection was found to not exist, we don't care if there's a later api error
+            model.workingConnections
+
         ( _, Err _ ) ->
             Error "Something went wrong!"
 
@@ -645,7 +642,7 @@ uncachedPending cache newComics =
     Dict.filter (\k _ -> not (Dict.member k cache)) newComics
 
 
-allOrNothing : Int -> Maybe (List SummaryComicsForCharacter) -> PendingComics
+allOrNothing : Int -> Maybe (List Api.SummaryComicsForCharacter) -> PendingComics
 allOrNothing characterId details =
     case pluckComics details of
         Just comics ->
@@ -657,7 +654,7 @@ allOrNothing characterId details =
             Dict.empty
 
 
-pluckId : Maybe (List SummaryComicsForCharacter) -> Maybe Scalar.Id
+pluckId : Maybe (List Api.SummaryComicsForCharacter) -> Maybe Scalar.Id
 pluckId details =
     details
         |> Maybe.unwrap [] (List.map .id)
@@ -666,7 +663,7 @@ pluckId details =
         |> List.head
 
 
-pluckComics : Maybe (List SummaryComicsForCharacter) -> Maybe (List Comic)
+pluckComics : Maybe (List Api.SummaryComicsForCharacter) -> Maybe (List Api.Comic)
 pluckComics details =
     details
         |> Maybe.unwrap [] (List.map .comics)
@@ -715,7 +712,7 @@ runEffect : Model -> Effect -> Cmd Msg
 runEffect model effect =
     case effect of
         LoadCharacterInfo ->
-            startQuery
+            Api.startQuery
                 |> Graphql.Http.queryRequest "https://api.marvelql.com/"
                 |> Graphql.Http.send (RemoteData.fromResult >> GotCharactersComicsDetails)
 
@@ -727,8 +724,13 @@ runEffect model effect =
             else
                 pendingComics
                     |> Dict.values
-                    |> List.map (\comic -> ( comic.parents, comic ))
-                    |> List.map comicQuery
+                    |> List.map
+                        (\comic ->
+                            Api.comicQuery
+                                (GotComicCharacters comic.parents comic)
+                                comicCharactersDecoder
+                                comic.resource
+                        )
                     |> Cmd.batch
 
 
@@ -736,77 +738,12 @@ runEffect model effect =
 --- API
 
 
-type alias SummaryData =
-    { name : Maybe String
-    , resourceUri : Maybe String
-    }
-
-
-type alias SummaryComicsForCharacter =
-    { id : Maybe Scalar.Id
-
-    -- , name : Maybe String
-    , comics : Maybe (List SummaryData)
-    }
-
-
-unwrapComicNames : Maybe (List (Maybe String)) -> List String
-unwrapComicNames comics =
-    Maybe.unwrap
-        []
-        (List.map (\comic -> Maybe.withDefault "" comic))
-        comics
-
-
-startQuery : SelectionSet (Maybe (List SummaryComicsForCharacter)) RootQuery
-startQuery =
-    let
-        whereClause =
-            buildCharacterWhereInput
-                (\optionals ->
-                    { optionals | name = Present "Squirrel Girl" }
-                )
-    in
-    Query.characters
-        (\optionals ->
-            { optionals | where_ = Present whereClause }
-        )
-        (SelectionSet.map2 SummaryComicsForCharacter
-            CharacterApi.id
-            (CharacterApi.comics
-                (SelectionSet.map2 SummaryData
-                    Summary.name
-                    Summary.resourceURI
-                )
-            )
-        )
-
-
-comicQuery : ( List Int, Comic ) -> Cmd Msg
-comicQuery ( parentCharacters, comic ) =
-    Http.get
-        { url = comic.resource ++ "/characters?ts=1&apikey=***REMOVED***&hash=***REMOVED***"
-        , expect = Http.expectJson (GotComicCharacters parentCharacters comic) comicCharactersDecoder
-        }
-
-
-type alias ComicsForCharacter =
-    { id : Int
-    , name : String
-    , comics : ComicInfo
-    }
-
-
-type alias ComicInfo =
-    { available : Int, items : List Comic }
-
-
-comicCharactersDecoder : Json.Decoder (List ComicsForCharacter)
+comicCharactersDecoder : Json.Decoder (List Api.ComicsForCharacter)
 comicCharactersDecoder =
     Json.field "data"
         (Json.field "results"
             (Json.list
-                (Json.succeed ComicsForCharacter
+                (Json.succeed Api.ComicsForCharacter
                     |> required "id" Json.int
                     |> required "name" Json.string
                     |> required "comics" comicInfoDecoder
@@ -815,17 +752,17 @@ comicCharactersDecoder =
         )
 
 
-comicInfoDecoder : Json.Decoder ComicInfo
+comicInfoDecoder : Json.Decoder Api.ComicInfo
 comicInfoDecoder =
-    Json.succeed ComicInfo
+    Json.succeed Api.ComicInfo
         |> required "available" Json.int
         |> required "items" comicsDecoder
 
 
-comicsDecoder : Json.Decoder (List Comic)
+comicsDecoder : Json.Decoder (List Api.Comic)
 comicsDecoder =
     Json.list
-        (Json.succeed Comic
+        (Json.succeed Api.Comic
             |> required "name" Json.string
             |> required "resourceURI" Json.string
             |> hardcoded []
@@ -845,7 +782,7 @@ view model =
         , h2 [] [ text "Cached Comics" ]
         , viewComicApiCache model.comicApiCache
         , h2 [] [ text "Pending Comics" ]
-        , viewComicsCache model.pendingComics
+        , viewPendingComics model.pendingComics
         , div [] [ text "Data provided by Marvel. © 2014 Marvel" ]
         ]
         |> Html.toUnstyled
@@ -858,7 +795,7 @@ writeConnection connection acc =
             acc ++ "Squirrel Girl"
 
         conn :: conns ->
-            writeConnection conns (acc ++ conn.character ++ " is in " ++ conn.comic.name ++ " with ")
+            writeConnection conns (conn.character ++ " is in " ++ conn.comic.name ++ " with " ++ acc)
 
 
 viewConnection : WorkingConnections -> Html Msg
@@ -893,9 +830,9 @@ viewComicApiCache apiCache =
         |> div []
 
 
-viewComicsCache : ComicsCache -> Html msg
-viewComicsCache comicsCache =
-    comicsCache
+viewPendingComics : PendingComics -> Html msg
+viewPendingComics pendingComics =
+    pendingComics
         |> Dict.map
             (\k comic ->
                 div []
@@ -949,29 +886,18 @@ main =
 -- Comic stuff
 
 
-type alias Comic =
-    { name : String
-    , resource : String
-    , parents : List Int
-    }
-
-
-type alias ComicsCache =
-    Dict Int Comic
-
-
 type alias Resource =
     String
 
 
-fromList : List Comic -> PendingComics
+fromList : List Api.Comic -> PendingComics
 fromList comics =
     comics
         |> comicTuples
         |> Dict.fromList
 
 
-addParent : Int -> Comic -> Comic
+addParent : Int -> Api.Comic -> Api.Comic
 addParent characterId comic =
     let
         uniqueParents =
@@ -983,7 +909,7 @@ addParent characterId comic =
 {-| "<http://gateway.marvel.com/v1/public/comics/58636">
 "<http:"> "" "gateway.marvel.com" "v1" "public" "comics" "58636"
 -}
-comicId : Comic -> Maybe Int
+comicId : Api.Comic -> Maybe Int
 comicId comic =
     let
         words =
@@ -1003,7 +929,7 @@ comicId comic =
             Nothing
 
 
-comicTuples : List Comic -> List ( Int, Comic )
+comicTuples : List Api.Comic -> List ( Int, Api.Comic )
 comicTuples comics =
     comics
         |> List.map (\comic -> ( comicId comic, comic ))
