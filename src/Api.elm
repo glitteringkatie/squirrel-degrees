@@ -24,6 +24,8 @@ import Marvelql.Query as Query
 import Marvelql.Scalar as Scalar
 import Marvelql.ScalarCodecs
 import Maybe.Extra as Maybe
+import Secrets exposing (marvelHash, marvelPublicKey)
+import Time
 
 
 type alias ComicApiCache =
@@ -95,8 +97,23 @@ startQuery =
 
 comicQuery : (Result.Result Http.Error (List ComicsForCharacter) -> msg) -> Json.Decoder (List ComicsForCharacter) -> String -> Cmd msg
 comicQuery message decoder url =
+    let
+        timestamp =
+            -- The timestamp is pretty arbitrary and while the docs say you need
+            -- to change it each call, I didn't experience that need.
+            -- see "Authentication for Server-Side Applications" in
+            -- https://developer.marvel.com/documentation/authorization
+            "42"
+    in
     Http.get
-        { url = url ++ "/characters?ts=1&apikey=***REMOVED***&hash=***REMOVED***"
+        { url =
+            url
+                ++ "/characters?ts="
+                ++ timestamp
+                ++ "&apikey="
+                ++ marvelPublicKey
+                ++ "&hash="
+                ++ marvelHash timestamp
         , expect = Http.expectJson message decoder
         }
 
