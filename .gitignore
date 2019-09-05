@@ -4,7 +4,9 @@
 elm-stuff
 # elm-repl generated files
 repl-temp-*
-ui/generated
+src/generated
+# elm secrets
+src/Secrets.elm
 
 ### Package stuff
 ### https://github.com/github/gitignore/blob/master/Node.gitignore
