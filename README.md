@@ -22,6 +22,8 @@ Make sure you've first followed [Setting up your api keys](#setting-up-your-api-
 
 1. If you don't already have elm installed, follow the install instructions from the [elm-lang guide](https://guide.elm-lang.org/install.html).
 
+1. Install dependencies through `npm install`.
+
 1. Generate the GraphQL client by running `npm run api:gen` from the root of the project.
 
 1. Run `elm reactor`.
