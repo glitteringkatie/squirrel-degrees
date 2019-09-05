@@ -8,8 +8,6 @@ This project was created for my GraphQSquirrel talk at [elm-conf 2019](https://2
 
 ## Development
 
-I'm assuming you already have elm installed but if not, install it by following the install instructions from the [elm-lang guide](https://guide.elm-lang.org/install.html).
-
 ### Setting up your api keys
 
 1. Sign up for an account through the [Marvel developer portal](https://developer.marvel.com).
