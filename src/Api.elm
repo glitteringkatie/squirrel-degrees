@@ -30,6 +30,10 @@ type alias ComicApiCache =
     Dict Int (List ComicsForCharacter)
 
 
+
+-- GraphQL Types
+
+
 type alias SummaryData =
     { name : Maybe String
     , resourceUri : Maybe String
@@ -42,12 +46,23 @@ type alias SummaryComicsForCharacter =
     }
 
 
-unwrapComicNames : Maybe (List (Maybe String)) -> List String
-unwrapComicNames comics =
-    Maybe.unwrap
-        []
-        (List.map (\comic -> Maybe.withDefault "" comic))
-        comics
+
+-- Json Decoder Types
+
+
+type alias ComicsForCharacter =
+    { id : Int
+    , name : String
+    , comics : ComicInfo
+    }
+
+
+type alias ComicInfo =
+    { available : Int, items : List Comic }
+
+
+
+-- GraphQL Query
 
 
 startQuery : SelectionSet (Maybe (List SummaryComicsForCharacter)) RootQuery
@@ -74,23 +89,16 @@ startQuery =
         )
 
 
+
+-- REST Query
+
+
 comicQuery : (Result.Result Http.Error (List ComicsForCharacter) -> msg) -> Json.Decoder (List ComicsForCharacter) -> String -> Cmd msg
 comicQuery message decoder url =
     Http.get
         { url = url ++ "/characters?ts=1&apikey=***REMOVED***&hash=***REMOVED***"
         , expect = Http.expectJson message decoder
         }
-
-
-type alias ComicsForCharacter =
-    { id : Int
-    , name : String
-    , comics : ComicInfo
-    }
-
-
-type alias ComicInfo =
-    { available : Int, items : List Comic }
 
 
 
