@@ -38,6 +38,10 @@ This project doesn't have enough tests because I was lazy but there are _some_ t
 
 2. Run `elm-test` or `npm run test`.
 
+## Two main issues
+- Currently does not deal with paginating through API responses--would also require rethinking of when a degree has been completely searched since I currently use an empty PendingComics queue to mean it's time to step to the next degree
+- Currently does not correctly fill in the working graph from the cache past the first degree--only fills in the first degree and thinks it is done. Probably need to just reload PendingComics appropriately but the first degree is handled by one function and the rest of the degrees are handled by another function (since one is from /comics and the other is from /comics/#{id}/character)
+
 ## Other Resources
 
 - Find Squirrel Girl at your [local comic book store](https://www.comicshoplocator.com/).
@@ -45,7 +49,3 @@ This project doesn't have enough tests because I was lazy but there are _some_ t
 - Find [Squirrel Girl Vol 1](https://www.indiebound.org/book/9780785197027) at your local indie bookstore.
 
 - Find [Squirrel Girl Vol 1](https://www.worldcat.org/title/unbeatable-squirrel-girl-vol-01-squirrel-power) at your local public library--also remember that it is the 21st centruy and most libraries have a way to digitially checkout comics! Check with your local library!
-
-## Two main issues
-- Currently does not deal with paginating through API responses--would also require rethinking of when a degree has been completely searched since I currently use an empty PendingComics queue to mean it's time to step to the next degree
-- Currently does not correctly fill in the working graph from the cache past the first degree--only fills in the first degree and thinks it is done. Probably need to just reload PendingComics appropriately but the first degree is handled by one function and the rest of the degrees are handled by another function (since one is from /comics and the other is from /comics/#{id}/character)
